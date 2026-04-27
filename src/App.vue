@@ -9,6 +9,7 @@
 </p>
       </div>
     </div>
+    <field-source-overlay v-if='scene && scene.isWebGPU' :scene='scene'></field-source-overlay>
     <div v-if='webGLEnabled && !hideUI'>
       <vector-view v-if='vectorLinesEnabled'></vector-view>
       <ruler></ruler>
@@ -33,6 +34,7 @@ import About from './components/About.vue';
 import bus from './lib/bus.js';
 import isSmallScreen from './lib/isSmallScreen.js';
 import VectorView from './components/VectorView.vue';
+import FieldSourceOverlay from './components/FieldSourceOverlay.vue';
 import config from './lib/config.js';
 import createDrag from './lib/utils/drag.js';
 import appState from './lib/appState.js';
@@ -76,7 +78,8 @@ export default {
     Settings,
     Share,
     About,
-    VectorView
+    VectorView,
+    FieldSourceOverlay
   },
   methods: {
     getControlsContainerStyle() {

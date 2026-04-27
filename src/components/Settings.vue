@@ -1,16 +1,59 @@
 <template>
   <div class='settings' :class='{collapsed: settingsPanel.collapsed}'>
-    <div class='block vector-field'  v-if='vectorField'>
+    <div class='block render-backend' v-if='renderBackendAvailable'>
+      <div class='title'>Render Backend</div>
+      <div class='row'>
+        <div class='col'>
+          <div class='backend-buttons'>
+            <button 
+              :class="{'active': useWebGPU && webGPUAvailable}" 
+              @click='switchToWebGPU'
+              :disabled='!webGPUAvailable'
+              class='backend-btn'
+            >
+              WebGPU
+              <span v-if='!webGPUAvailable' class='unavailable'>(Not available)</span>
+            </button>
+            <button 
+              :class="{'active': !useWebGPU}" 
+              @click='switchToWebGL'
+              class='backend-btn'
+            >
+              WebGL (Legacy)
+            </button>
+          </div>
+        </div>
+      </div>
+      <div class='backend-info' v-if='useWebGPU'>
+        <span class='status-indicator webgpu'></span>
+        <span>GPU-accelerated with compute shaders</span>
+      </div>
+      <div class='backend-info' v-else>
+        <span class='status-indicator webgl'></span>
+        <span>Legacy WebGL 1.0 with float packing</span>
+      </div>
+    </div>
+    
+    <FieldSources v-if='useWebGPU' :scene='scene' />
+    <ReactionDiffusion v-if='useWebGPU' :scene='scene' />
+    
+    <div class='block vector-field'  v-if='vectorField && !useWebGPU'>
       <div class='title'>Vector field <a class='reset-all' :class='{"syntax-visible": syntaxHelpVisible}' href='#' @click.prevent='syntaxHelpVisible = !syntaxHelpVisible' title='click to learn more about syntax'>syntax help</a></div>
       <syntax v-if='syntaxHelpVisible' @close='syntaxHelpVisible = false'></syntax>
       <code-editor :model='vectorField'></code-editor>
     </div>
+    
+    <div class='webgpu-note' v-if='useWebGPU'>
+      <div class='note-title'>📝 WebGPU Mode</div>
+      <p>Custom GLSL vector field code is not available in WebGPU mode. Use Field Sources above to create interactive vector fields with visual controls.</p>
+    </div>
+    
     <div class='block' v-if='showBindings'>
       <Inputs :vm='inputsModel'></Inputs>
     </div>
     <form class='block' @submit.prevent='onSubmit'>
       <div class='title'>Settings<a class='reset-all' href='?' title='set default settings'>reset all</a> </div>
-      <div class='row'>
+      <div class='row' v-if='!useWebGPU'>
         <div class='col'>Particle color</div>
         <div class='col'> 
           <select v-model='selectedColorMode' @change='changeColor'>
@@ -127,6 +170,8 @@ import Syntax from './help/Syntax.vue';
 import HelpIcon from './help/Icon.vue';
 import CodeEditor from './CodeEditor.vue';
 import Inputs from './Inputs.vue';
+import FieldSources from './FieldSources.vue';
+import ReactionDiffusion from './ReactionDiffusion.vue';
 
 // Temporary disable this until API is finished.
 const soundAvailable = config.isAudioEnabled;
@@ -138,7 +183,9 @@ export default {
     Syntax,
     HelpIcon,
     CodeEditor,
-    Inputs
+    Inputs,
+    FieldSources,
+    ReactionDiffusion
   },
   mounted() {
     bus.on('scene-ready', this.onSceneReady, this);
@@ -163,7 +210,6 @@ export default {
       timeStep: 0,
       selectedColorMode: 0,
       soundAvailable: soundAvailable,
-      // TODO: Need something better for help management?
       selectedColorHelp: false,
       syntaxHelpVisible: false,
       particleCountHelpVisible: false,
@@ -171,7 +217,10 @@ export default {
       resetProbabilityHelp: false,
       integrationStepHelp: false,
       minX: 0, minY: 0,
-      maxX: 0, maxY: 0
+      maxX: 0, maxY: 0,
+      useWebGPU: false,
+      webGPUAvailable: false,
+      renderBackendAvailable: true
     };
   },
   watch: {
@@ -235,7 +284,6 @@ export default {
         }
         this.audioSource.playStream(this.soundLoader.streamUrl())
       });
-      // TODO: Error handling
     },
     goToOrigin() {
       this.scene.resetBoundingBox();
@@ -253,6 +301,26 @@ export default {
       this.scene.setBackgroundColor(rgba);
     },
 
+    async switchToWebGPU() {
+      if (!this.webGPUAvailable || this.useWebGPU) return;
+      
+      if (window.renderBackend && window.renderBackend.switchBackend) {
+        await window.renderBackend.switchBackend(true);
+        this.useWebGPU = true;
+        this.onSceneReady(window.scene);
+      }
+    },
+
+    async switchToWebGL() {
+      if (this.useWebGPU === false) return;
+      
+      if (window.renderBackend && window.renderBackend.switchBackend) {
+        await window.renderBackend.switchBackend(false);
+        this.useWebGPU = false;
+        this.onSceneReady(window.scene);
+      }
+    },
+
     onSceneReady(scene) {
       this.vectorField = scene.vectorFieldEditorState;
       this.particlesCount = scene.getParticlesCount();
@@ -260,6 +328,10 @@ export default {
       this.dropProbability = scene.getDropProbability();
       this.timeStep = scene.getIntegrationTimeStep();
       this.selectedColorMode = scene.getColorMode();
+      
+      this.webGPUAvailable = navigator.gpu !== undefined;
+      this.useWebGPU = scene && scene.isWebGPU;
+      
       this.updateBBox();
     },
 
@@ -269,7 +341,6 @@ export default {
       this.minX = bbox.minX;
       this.maxX = bbox.maxX;
 
-      // Y is weird in my implementation. I know..
       this.minY = bbox.minY;
       this.maxY = bbox.maxY;
       if (this.prevBboxReset) clearTimeout(this.prevBboxReset);
@@ -501,6 +572,102 @@ a.help-icon {
   }
   .max-x {
     justify-content: flex-end;
+  }
+}
+
+.render-backend {
+  margin-bottom: 15px;
+  padding-bottom: 15px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.backend-buttons {
+  display: flex;
+  gap: 8px;
+}
+
+.backend-btn {
+  flex: 1;
+  padding: 10px 15px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.05);
+  color: secondary-text;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  transition: all 0.2s;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  
+  &:hover:not(:disabled) {
+    background: rgba(100, 150, 255, 0.15);
+    border-color: rgba(100, 150, 255, 0.4);
+  }
+  
+  &.active {
+    background: accent-color;
+    border-color: accent-color;
+    color: white;
+  }
+  
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  
+  .unavailable {
+    font-size: 10px;
+    opacity: 0.7;
+  }
+}
+
+.backend-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  font-size: 11px;
+  color: secondary-text;
+}
+
+.status-indicator {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  
+  &.webgpu {
+    background: #90EE90;
+    box-shadow: 0 0 6px rgba(144, 238, 144, 0.5);
+  }
+  
+  &.webgl {
+    background: #FFB86C;
+    box-shadow: 0 0 6px rgba(255, 184, 108, 0.5);
+  }
+}
+
+.webgpu-note {
+  margin: 10px 0;
+  padding: 12px;
+  background: rgba(100, 150, 255, 0.1);
+  border-radius: 6px;
+  border-left: 3px solid accent-color;
+  
+  .note-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: primary-text;
+    margin-bottom: 6px;
+  }
+  
+  p {
+    margin: 0;
+    font-size: 11px;
+    color: secondary-text;
+    line-height: 1.5;
   }
 }
 
