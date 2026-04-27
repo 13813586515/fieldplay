@@ -113,6 +113,8 @@
         </div>
       </div>
     </form>
+    
+    <PostProcessingSettings :scene='scene' />
   </div>
 </template>
 <script>
@@ -127,6 +129,7 @@ import Syntax from './help/Syntax.vue';
 import HelpIcon from './help/Icon.vue';
 import CodeEditor from './CodeEditor.vue';
 import Inputs from './Inputs.vue';
+import PostProcessingSettings from './PostProcessingSettings.vue';
 
 // Temporary disable this until API is finished.
 const soundAvailable = config.isAudioEnabled;
@@ -138,7 +141,8 @@ export default {
     Syntax,
     HelpIcon,
     CodeEditor,
-    Inputs
+    Inputs,
+    PostProcessingSettings
   },
   mounted() {
     bus.on('scene-ready', this.onSceneReady, this);
