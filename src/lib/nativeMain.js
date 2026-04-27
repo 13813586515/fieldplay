@@ -4,7 +4,7 @@
  * It is initialized immediately with webgl, and puts
  * vue.js app loading into the future.
  */
-import initScene from './scene';
+import initScene from './sceneEnhanced';
 import bus from './bus';
 import { initAutoMode } from './autoMode';
 
@@ -18,7 +18,7 @@ import('@/vueApp.js');
 function initVectorFieldApp(canvas) {
   canvas.width = window.innerWidth;
   canvas.height =  window.innerHeight;
-  var ctxOptions = {antialiasing: false };
+  var ctxOptions = {antialiasing: false, alpha: false, preserveDrawingBuffer: true };
 
   var gl = canvas.getContext('webgl', ctxOptions) ||
           canvas.getContext('experimental-webgl', ctxOptions);
