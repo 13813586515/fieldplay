@@ -93,6 +93,10 @@
               {{ errorMessage }}
             </div>
 
+            <div v-if="successMessage" class="success-message">
+              {{ successMessage }}
+            </div>
+
             <div class="button-row">
               <button 
                 v-if="!isRecording && !isProcessing" 
@@ -118,8 +122,8 @@
             </div>
 
             <div v-if="videoFormat === 'gif'" class="notice-box">
-              <strong>Note:</strong> GIF export may result in large file sizes and lower quality. 
-              For best results, use WebM format.
+              <strong>Note:</strong> GIF export may take longer to process and produce larger files. 
+              WebM is recommended for better quality and smaller file sizes.
             </div>
           </div>
 
@@ -245,6 +249,15 @@ const sliderTicks = [
   { value: 60, label: '60s', percent: 100 }
 ];
 
+let CCapture = null;
+
+function loadCCapture() {
+  return import('ccapture.js').then(module => {
+    CCapture = module.default || module;
+    return CCapture;
+  });
+}
+
 export default {
   name: 'ExportShare',
   data() {
@@ -258,7 +271,7 @@ export default {
       resolutionPreset: '720p',
       exportWidth: 1280,
       exportHeight: 720,
-      duration: 10,
+      duration: 5,
       fps: 30,
       
       isRecording: false,
@@ -267,11 +280,12 @@ export default {
       currentFrame: 0,
       totalFrames: 0,
       errorMessage: '',
+      successMessage: '',
       
       mediaRecorder: null,
       recordedChunks: [],
       recordingTimer: null,
-      originalCanvasSize: null,
+      capturer: null,
 
       shaderPlatform: 'shadertoy',
       generatedShaderCode: '',
@@ -299,6 +313,7 @@ export default {
     openDialog() {
       this.isOpened = true;
       this.errorMessage = '';
+      this.successMessage = '';
       this.$nextTick(() => {
         if (this.activeTab === 'shader') {
           this.generateShaderCode();
@@ -313,6 +328,8 @@ export default {
     },
     switchTab(tabId) {
       this.activeTab = tabId;
+      this.errorMessage = '';
+      this.successMessage = '';
       this.$nextTick(() => {
         if (tabId === 'shader') {
           this.generateShaderCode();
@@ -346,6 +363,12 @@ export default {
         clearInterval(this.recordingTimer);
         this.recordingTimer = null;
       }
+      if (this.capturer) {
+        try {
+          this.capturer.stop();
+        } catch (e) {}
+        this.capturer = null;
+      }
       this.isRecording = false;
       this.isProcessing = false;
       this.mediaRecorder = null;
@@ -358,13 +381,9 @@ export default {
         return;
       }
 
-      if (!window.MediaRecorder) {
-        this.errorMessage = 'MediaRecorder API is not supported in this browser';
-        return;
-      }
-
       this.isRecording = true;
       this.errorMessage = '';
+      this.successMessage = '';
       this.totalFrames = this.duration * this.fps;
       this.currentFrame = 0;
       this.recordingProgress = 0;
@@ -411,17 +430,53 @@ export default {
 
       this.mediaRecorder.start(100);
 
+      this.startProgressTimer();
+
+      setTimeout(() => {
+        if (this.isRecording) {
+          this.stopRecording();
+        }
+      }, (this.duration + 0.5) * 1000);
+    },
+    async startGIFRecording(canvas) {
+      if (!CCapture) {
+        try {
+          await loadCCapture();
+        } catch (e) {
+          this.errorMessage = 'Cannot load GIF encoder. Please use WebM format instead.';
+          this.isRecording = false;
+          return;
+        }
+      }
+
+      this.capturer = new CCapture({
+        format: 'gif',
+        framerate: this.fps,
+        verbose: false,
+        quality: 80,
+        workersPath: '',
+      });
+
+      this.capturer.start();
+
       this.recordingTimer = setInterval(() => {
         if (!this.isRecording) {
           clearInterval(this.recordingTimer);
           return;
         }
+
+        try {
+          this.capturer.capture(canvas);
+        } catch (e) {
+          console.error('Capture error:', e);
+        }
+
         this.currentFrame++;
         this.recordingProgress = Math.min(100, (this.currentFrame / this.totalFrames) * 100);
         
         if (this.currentFrame >= this.totalFrames) {
           clearInterval(this.recordingTimer);
-          this.stopRecording();
+          this.finishGIFRecording();
         }
       }, 1000 / this.fps);
 
@@ -429,11 +484,46 @@ export default {
         if (this.isRecording) {
           this.stopRecording();
         }
-      }, (this.duration + 1) * 1000);
+      }, (this.duration + 5) * 1000);
     },
-    async startGIFRecording(canvas) {
-      this.errorMessage = 'GIF recording is experimental. For best results, use WebM format.';
-      
+    finishGIFRecording() {
+      this.isRecording = false;
+      this.isProcessing = true;
+      this.successMessage = 'Processing GIF... This may take a moment.';
+      this.errorMessage = '';
+
+      try {
+        this.capturer.stop();
+        
+        this.capturer.save((blob) => {
+          if (blob && blob.size > 0) {
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            document.body.appendChild(a);
+            a.style.display = 'none';
+            a.href = url;
+            a.download = `vector-field-${Date.now()}.gif`;
+            a.click();
+            
+            setTimeout(() => {
+              window.URL.revokeObjectURL(url);
+              document.body.removeChild(a);
+            }, 100);
+
+            this.successMessage = 'GIF downloaded successfully!';
+          } else {
+            this.errorMessage = 'GIF generation failed - no data produced. Try using WebM format instead.';
+          }
+          this.isProcessing = false;
+          this.capturer = null;
+        });
+      } catch (e) {
+        this.errorMessage = 'GIF processing error: ' + e.message + '. Try using WebM format instead.';
+        this.isProcessing = false;
+        this.capturer = null;
+      }
+    },
+    startProgressTimer() {
       this.recordingTimer = setInterval(() => {
         if (!this.isRecording) {
           clearInterval(this.recordingTimer);
@@ -444,12 +534,19 @@ export default {
         
         if (this.currentFrame >= this.totalFrames) {
           clearInterval(this.recordingTimer);
-          this.isRecording = false;
-          this.errorMessage = 'GIF recording completed. Note: WebM format recommended for better results.';
         }
       }, 1000 / this.fps);
     },
     stopRecording() {
+      if (this.videoFormat === 'gif' && this.capturer) {
+        if (this.recordingTimer) {
+          clearInterval(this.recordingTimer);
+          this.recordingTimer = null;
+        }
+        this.finishGIFRecording();
+        return;
+      }
+
       this.isRecording = false;
       
       if (this.recordingTimer) {
@@ -497,6 +594,7 @@ export default {
         this.isRecording = false;
         this.recordingProgress = 0;
         this.errorMessage = '';
+        this.successMessage = 'Video downloaded successfully!';
       } catch (e) {
         this.errorMessage = 'Download failed: ' + e.message;
         this.isRecording = false;
@@ -520,11 +618,6 @@ export default {
     buildShadertoyCode(userCode) {
       return `// Vector Field Visualization - Shadertoy Export
 // Generated with FieldPlay (https://github.com/anvaka/fieldplay)
-//
-// Instructions:
-// 1. Create a new shader at shadertoy.com/new
-// 2. Paste this code into the "Image" tab
-// 3. Click "Play" to see your vector field in action!
 
 const float PI = 3.1415926535897932384626433832795;
 
@@ -613,11 +706,6 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
     buildGLSLSandboxCode(userCode) {
       return `// Vector Field Visualization - GLSL Sandbox Export
 // Generated with FieldPlay (https://github.com/anvaka/fieldplay)
-//
-// Instructions:
-// 1. Go to glslsandbox.com
-// 2. Click "New shader"
-// 3. Replace the default code with this code
 
 #ifdef GL_ES
 precision mediump float;
@@ -759,10 +847,12 @@ void main(void) {
       ctx.fillRect(0, 0, width, height);
 
       const sourceCanvas = document.getElementById('scene');
-      const previewWidth = Math.floor(width * 0.9);
-      const previewHeight = Math.floor(height * 0.5);
+      
+      const previewWidth = Math.floor(width * 0.92);
+      const aspectRatio = this.posterSize === 'wide' ? 16/9 : (this.posterSize === 'a4' ? 4/3 : 1);
+      const previewHeight = Math.floor(previewWidth / aspectRatio);
       const previewX = Math.floor((width - previewWidth) / 2);
-      const previewY = Math.floor(height * 0.06);
+      const previewY = Math.floor(height * 0.05);
 
       if (sourceCanvas) {
         try {
@@ -778,30 +868,31 @@ void main(void) {
       ctx.lineWidth = 2 * scale;
       ctx.strokeRect(previewX, previewY, previewWidth, previewHeight);
 
-      const contentY = previewY + previewHeight + 25 * scale;
+      const contentY = previewY + previewHeight + 20 * scale;
 
       ctx.fillStyle = '#ffffff';
-      ctx.font = `bold ${Math.floor(28 * scale)}px Arial, Helvetica, sans-serif`;
+      ctx.font = `bold ${Math.floor(24 * scale)}px Arial, Helvetica, sans-serif`;
       ctx.textAlign = 'center';
       ctx.fillText(this.posterTitle, width / 2, contentY);
 
       ctx.fillStyle = '#99c5f1';
-      ctx.font = `${Math.floor(16 * scale)}px Arial, Helvetica, sans-serif`;
-      ctx.fillText(this.posterSubtitle, width / 2, contentY + 28 * scale);
+      ctx.font = `${Math.floor(14 * scale)}px Arial, Helvetica, sans-serif`;
+      ctx.fillText(this.posterSubtitle, width / 2, contentY + 24 * scale);
 
-      const qrSize = Math.floor(100 * scale);
+      const qrSize = Math.floor(80 * scale);
       const qrX = Math.floor(width / 2 - qrSize / 2);
-      const qrY = Math.floor(contentY + 50 * scale);
+      const qrY = Math.floor(contentY + 35 * scale);
 
       this.drawQRPlaceholder(ctx, qrX, qrY, qrSize);
 
       ctx.fillStyle = '#435970';
-      ctx.font = `${Math.floor(11 * scale)}px Arial, Helvetica, sans-serif`;
-      ctx.fillText('Scan to experience (Visual Demo)', width / 2, qrY + qrSize + 18 * scale);
+      ctx.font = `${Math.floor(10 * scale)}px Arial, Helvetica, sans-serif`;
+      ctx.fillText('Scan to experience (Visual Demo)', width / 2, qrY + qrSize + 16 * scale);
 
       ctx.fillStyle = '#455B7D';
-      ctx.font = `${Math.floor(9 * scale)}px Arial, Helvetica, sans-serif`;
-      ctx.fillText('Generated with FieldPlay • Vector Field Art', width / 2, height - 15 * scale);
+      ctx.font = `${Math.floor(8 * scale)}px Arial, Helvetica, sans-serif`;
+      const footerY = height - 12 * scale;
+      ctx.fillText('Generated with FieldPlay • Vector Field Art', width / 2, footerY);
     },
     drawPlaceholderField(ctx, x, y, w, h) {
       const time = Date.now() * 0.001;
@@ -940,16 +1031,16 @@ void main(void) {
   display: flex;
   justify-content: center;
   align-items: center;
-  z-index: 1000;
+  z-index: 2000;
 }
 
 .export-dialog {
   background: window-background;
   border: 1px solid primary-border;
   border-radius: 8px;
-  width: 560px;
+  width: 580px;
   max-width: 95vw;
-  max-height: 90vh;
+  max-height: 92vh;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -959,12 +1050,13 @@ void main(void) {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 16px 20px;
+  padding: 14px 18px;
   border-bottom: 1px solid secondary-border;
+  flex-shrink: 0;
 
   h2 {
     margin: 0;
-    font-size: 18px;
+    font-size: 17px;
     font-weight: normal;
     color: primary-text;
   }
@@ -973,10 +1065,10 @@ void main(void) {
     background: none;
     border: none;
     color: secondary-text;
-    font-size: 28px;
+    font-size: 26px;
     line-height: 1;
     cursor: pointer;
-    padding: 0 8px;
+    padding: 0 6px;
     transition: color 0.2s;
 
     &:hover {
@@ -987,21 +1079,22 @@ void main(void) {
 
 .tabs-container {
   display: flex;
-  gap: 4px;
-  padding: 12px 16px 0;
-  background: rgba(0, 0, 0, 0.1);
+  gap: 3px;
+  padding: 10px 14px 0;
+  background: rgba(0, 0, 0, 0.15);
   border-bottom: 1px solid secondary-border;
+  flex-shrink: 0;
 }
 
 .tab-button {
   flex: 1;
-  padding: 10px 12px;
+  padding: 9px 10px;
   background: transparent;
   border: 1px solid transparent;
   border-bottom: none;
-  border-radius: 6px 6px 0 0;
+  border-radius: 5px 5px 0 0;
   color: secondary-text;
-  font-size: 13px;
+  font-size: 12px;
   cursor: pointer;
   transition: all 0.2s;
   position: relative;
@@ -1009,7 +1102,7 @@ void main(void) {
 
   &:hover:not(.active) {
     color: primary-text;
-    background: rgba(153, 197, 241, 0.05);
+    background: rgba(153, 197, 241, 0.08);
   }
 
   &.active {
@@ -1023,7 +1116,7 @@ void main(void) {
 .tab-panels {
   flex: 1;
   overflow-y: auto;
-  padding: 20px;
+  padding: 16px 18px;
 }
 
 .tab-panel {
@@ -1031,13 +1124,13 @@ void main(void) {
 }
 
 .form-row {
-  margin-bottom: 18px;
+  margin-bottom: 14px;
 
   .form-label {
     display: block;
     color: secondary-text;
-    font-size: 13px;
-    margin-bottom: 8px;
+    font-size: 12px;
+    margin-bottom: 6px;
 
     .duration-display {
       color: primary-text;
@@ -1047,12 +1140,12 @@ void main(void) {
 
   .form-control {
     width: 100%;
-    padding: 10px 12px;
+    padding: 9px 11px;
     background: rgba(6, 24, 56, 0.9);
     color: primary-text;
     border: 1px solid secondary-border;
     border-radius: 4px;
-    font-size: 14px;
+    font-size: 13px;
     box-sizing: border-box;
 
     &:focus {
@@ -1065,17 +1158,17 @@ void main(void) {
     display: flex;
     align-items: center;
     gap: 8px;
-    margin-top: 10px;
+    margin-top: 8px;
 
     .res-input {
       flex: 1;
       min-width: 80px;
-      padding: 8px 10px;
+      padding: 7px 9px;
       background: rgba(6, 24, 56, 0.9);
       color: primary-text;
       border: 1px solid secondary-border;
       border-radius: 4px;
-      font-size: 14px;
+      font-size: 13px;
 
       &:focus {
         outline: none;
@@ -1085,14 +1178,14 @@ void main(void) {
 
     .sep {
       color: secondary-text;
-      font-size: 16px;
+      font-size: 15px;
     }
   }
 }
 
 .slider-container {
   position: relative;
-  padding: 8px 0;
+  padding: 6px 0;
 }
 
 .slider {
@@ -1106,8 +1199,8 @@ void main(void) {
   &::-webkit-slider-thumb {
     -webkit-appearance: none;
     appearance: none;
-    width: 18px;
-    height: 18px;
+    width: 16px;
+    height: 16px;
     border-radius: 50%;
     background: #99c5f1;
     cursor: pointer;
@@ -1116,8 +1209,8 @@ void main(void) {
   }
 
   &::-moz-range-thumb {
-    width: 18px;
-    height: 18px;
+    width: 16px;
+    height: 16px;
     border-radius: 50%;
     background: #99c5f1;
     cursor: pointer;
@@ -1127,77 +1220,88 @@ void main(void) {
 
 .slider-ticks {
   position: relative;
-  height: 20px;
-  margin-top: 4px;
+  height: 18px;
+  margin-top: 3px;
 
   .tick {
     position: absolute;
     transform: translateX(-50%);
     color: ternary-text;
-    font-size: 11px;
+    font-size: 10px;
   }
 }
 
 .progress-container {
-  margin: 16px 0;
-  padding: 12px;
+  margin: 14px 0;
+  padding: 10px;
   background: rgba(0, 0, 0, 0.2);
-  border-radius: 6px;
+  border-radius: 5px;
 
   .progress-bar-bg {
     width: 100%;
-    height: 10px;
+    height: 8px;
     background: rgba(69, 91, 125, 0.5);
-    border-radius: 5px;
+    border-radius: 4px;
     overflow: hidden;
   }
 
   .progress-bar-fill {
     height: 100%;
     background: linear-gradient(90deg, #455B7D, #99c5f1);
-    border-radius: 5px;
+    border-radius: 4px;
     transition: width 0.1s linear;
   }
 
   .progress-text {
-    margin: 8px 0 0;
+    margin: 6px 0 0;
     color: secondary-text;
-    font-size: 12px;
+    font-size: 11px;
     text-align: center;
   }
 }
 
 .error-message {
-  margin: 12px 0;
-  padding: 10px 14px;
+  margin: 10px 0;
+  padding: 9px 12px;
   background: rgba(255, 107, 107, 0.1);
   border: 1px solid rgba(255, 107, 107, 0.4);
   border-radius: 4px;
   color: #ff9999;
-  font-size: 13px;
+  font-size: 12px;
+}
+
+.success-message {
+  margin: 10px 0;
+  padding: 9px 12px;
+  background: rgba(100, 255, 100, 0.1);
+  border: 1px solid rgba(100, 255, 100, 0.4);
+  border-radius: 4px;
+  color: #99ff99;
+  font-size: 12px;
 }
 
 .notice-box {
-  margin-top: 16px;
-  padding: 12px 14px;
+  margin-top: 14px;
+  padding: 10px 12px;
   background: rgba(255, 200, 100, 0.1);
   border: 1px solid rgba(255, 200, 100, 0.3);
   border-radius: 4px;
   color: #ffcc80;
-  font-size: 12px;
+  font-size: 11px;
+  line-height: 1.5;
 }
 
 .button-row {
-  margin-top: 20px;
+  margin-top: 16px;
 
   .btn {
     width: 100%;
-    padding: 12px 24px;
+    padding: 11px 20px;
     border: 1px solid secondary-border;
-    border-radius: 6px;
+    border-radius: 5px;
     background: transparent;
     color: primary-text;
-    font-size: 15px;
+    font-size: 14px;
     cursor: pointer;
     transition: all 0.2s;
 
@@ -1226,39 +1330,39 @@ void main(void) {
 
     &.btn-small {
       width: auto;
-      padding: 6px 14px;
-      font-size: 12px;
+      padding: 5px 12px;
+      font-size: 11px;
     }
   }
 }
 
 .code-container {
-  margin-bottom: 16px;
+  margin-bottom: 14px;
 }
 
 .code-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 8px;
+  margin-bottom: 6px;
 
   .code-title {
     color: secondary-text;
-    font-size: 13px;
+    font-size: 12px;
   }
 }
 
 .code-editor {
   width: 100%;
-  height: 320px;
-  padding: 12px;
+  height: 280px;
+  padding: 10px;
   background: rgba(0, 0, 0, 0.4);
   color: #e0e0e0;
   border: 1px solid secondary-border;
   border-radius: 4px;
   font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
-  font-size: 11px;
-  line-height: 1.6;
+  font-size: 10px;
+  line-height: 1.5;
   resize: none;
   box-sizing: border-box;
 
@@ -1269,22 +1373,22 @@ void main(void) {
 }
 
 .info-box {
-  padding: 14px 16px;
+  padding: 12px 14px;
   background: rgba(6, 24, 56, 0.8);
   border: 1px solid secondary-border;
-  border-radius: 6px;
+  border-radius: 5px;
 
   h4 {
-    margin: 0 0 10px;
+    margin: 0 0 8px;
     color: primary-text;
-    font-size: 14px;
+    font-size: 13px;
     font-weight: normal;
   }
 
   p {
-    margin: 6px 0;
+    margin: 4px 0;
     color: secondary-text;
-    font-size: 12px;
+    font-size: 11px;
     line-height: 1.5;
 
     a {
@@ -1295,18 +1399,18 @@ void main(void) {
 }
 
 .poster-preview-container {
-  margin: 16px 0;
+  margin: 14px 0;
 }
 
 .preview-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 10px;
+  margin-bottom: 8px;
 
   .preview-label {
     color: secondary-text;
-    font-size: 13px;
+    font-size: 12px;
   }
 }
 
@@ -1315,20 +1419,23 @@ void main(void) {
   justify-content: center;
   padding: 10px;
   background: rgba(0, 0, 0, 0.2);
-  border-radius: 6px;
+  border-radius: 5px;
   border: 1px solid secondary-border;
+  max-height: 250px;
+  overflow: hidden;
 }
 
 .preview-canvas {
   max-width: 100%;
-  max-height: 280px;
+  max-height: 230px;
   background: #0a1628;
+  object-fit: contain;
 }
 
 .field-hint {
-  margin: 6px 0 0;
+  margin: 5px 0 0;
   color: ternary-text;
-  font-size: 11px;
+  font-size: 10px;
   font-style: italic;
 }
 
