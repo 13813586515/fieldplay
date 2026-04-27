@@ -19,6 +19,8 @@ import createDrawParticlesProgram from './programs/drawParticlesProgram';
 import createCursorUpdater from './utils/cursorUpdater';
 import createVectorFieldEditorState from './editor/vectorFieldState';
 import createInputsModel from './createInputsModel';
+import postProcessingState from './postProcessing/postProcessingState';
+import createPostProcessingProgramV2 from './postProcessing/postProcessingProgramV2';
 
 /**
  * Kicks offs the app rendering. Initialized before even vue is loaded.
@@ -118,6 +120,9 @@ export default function initScene(gl) {
   var drawProgram = createDrawParticlesProgram(ctx);
   var cursorUpdater = createCursorUpdater(ctx);
   var vectorFieldEditorState = createVectorFieldEditorState(drawProgram);
+  var postProcessing = createPostProcessingProgramV2(ctx);
+
+  let backgroundColor = { r: 19/255, g: 41/255, b: 79/255, a: 1 };
 
   // particles
   updateParticlesCount(particleCount);
@@ -153,14 +158,34 @@ export default function initScene(gl) {
     inputsModel,
 
     getCanvasRect() {
-      // We trust they don't do anything bad with this ...
       return canvasRect;
     },
 
     getBoundingBox() {
-      // again, we trust. Maybe to much?
       return ctx.bbox;
-    }
+    },
+
+    getPostProcessingEnabled: () => postProcessingState.getState().enabled,
+    setPostProcessingEnabled: (enabled) => {
+      postProcessingState.updateState({ enabled });
+    },
+    getPostProcessingState: postProcessingState.getState,
+    updatePostProcessingState: postProcessingState.updateState,
+    
+    getTrailsEnabled: () => false,
+    setTrailsEnabled: () => {},
+    getTrailsOpacity: () => 0.8,
+    setTrailsOpacity: () => {},
+    getTrailsWidth: () => 1.5,
+    setTrailsWidth: () => {},
+    
+    getTopologyEnabled: () => false,
+    setTopologyEnabled: () => {},
+    getTopologyShowCriticalPoints: () => true,
+    setTopologyShowCriticalPoints: () => {},
+    getTopologyShowSeparatrices: () => true,
+    setTopologyShowSeparatrices: () => {},
+    getCriticalPoints: () => []
   }
 
   var panzoom = initPanzoom();
@@ -339,10 +364,28 @@ export default function initScene(gl) {
   }
 
   function drawScreen() {
-    screenProgram.fadeOutLastFrame()
+    screenProgram.fadeOutLastFrame();
     drawProgram.drawParticles();
-    screenProgram.renderCurrentScreen();
+    
+    const state = postProcessingState.getState();
+    if (state.enabled) {
+      renderScreenWithPostProcessing();
+    } else {
+      screenProgram.renderCurrentScreen();
+    }
+    
     drawProgram.updateParticlesPositions();
+  }
+
+  function renderScreenWithPostProcessing() {
+    const currentTexture = screenProgram.getScreenTexture();
+    
+    postProcessing.renderToScreenWithPostProcessing(currentTexture, () => {
+      screenProgram.renderCurrentScreen();
+    });
+    
+    screenProgram.swapTextures();
+    screenProgram.boundingBoxUpdated = false;
   }
 
   function updateParticlesCount(numParticles) {

@@ -46,6 +46,18 @@ const defaultPostProcessingState = {
 
 let currentState = JSON.parse(JSON.stringify(defaultPostProcessingState));
 
+function deepMerge(target, source) {
+  const result = { ...target };
+  for (const key in source) {
+    if (source[key] && typeof source[key] === 'object' && !Array.isArray(source[key])) {
+      result[key] = deepMerge(target[key] || {}, source[key]);
+    } else {
+      result[key] = source[key];
+    }
+  }
+  return result;
+}
+
 export default {
   getState() {
     return currentState;
@@ -53,6 +65,10 @@ export default {
   
   setState(newState) {
     currentState = { ...currentState, ...newState };
+  },
+  
+  updateState(updates) {
+    currentState = deepMerge(currentState, updates);
   },
   
   reset() {

@@ -4,9 +4,10 @@
  * It is initialized immediately with webgl, and puts
  * vue.js app loading into the future.
  */
-import initScene from './sceneEnhanced';
+import initScene from './scene';
 import bus from './bus';
 import { initAutoMode } from './autoMode';
+import initPostProcessing from './postProcessing/postProcessingProgramV2';
 
 var canvas = document.getElementById('scene');
 // Canvas may not be available in test run

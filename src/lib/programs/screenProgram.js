@@ -23,6 +23,13 @@ export default function makeScreenProgram(ctx) {
     fadeOutLastFrame,
     renderCurrentScreen,
     updateScreenTextures,
+    getScreenTexture: () => screenTexture,
+    getBackgroundTexture: () => backgroundTexture,
+    swapTextures: () => {
+      var temp = backgroundTexture;
+      backgroundTexture = screenTexture;
+      screenTexture = temp;
+    },
 
     boundingBoxUpdated: false
   };
