@@ -1,177 +1,227 @@
 <template>
   <div class="export-share-container">
     <div class="export-share-btn">
-      <a href="#" @click.prevent="openDialog" class="open-export-dialog">
+      <button @click="openDialog" class="open-export-dialog">
         <span class="icon">⬇</span> Export & Share
-      </a>
+      </button>
     </div>
 
-    <div v-if="isOpened" class="export-dialog" @click="hide">
-      <div class="export-window" ref="exportWindow">
+    <div v-if="isOpened" class="export-overlay" @click.self="closeDialog">
+      <div class="export-dialog" ref="dialogRef">
         <div class="dialog-header">
           <h2>Export & Share</h2>
-          <a href="#" @click.prevent="hide" class="close-btn" title="close">×</a>
+          <button @click="closeDialog" class="close-btn" title="close">×</button>
         </div>
 
-        <div class="tabs">
+        <div class="tabs-container">
           <button 
             v-for="tab in tabs" 
             :key="tab.id"
-            :class="['tab-btn', { active: activeTab === tab.id }]"
-            @click="activeTab = tab.id"
+            :class="['tab-button', { active: activeTab === tab.id }]"
+            @click="switchTab(tab.id)"
           >
             {{ tab.name }}
           </button>
         </div>
 
-        <div class="tab-content">
-          <div v-if="activeTab === 'video'" class="video-export">
-            <div class="form-group">
-              <label>Output Format</label>
-              <select v-model="videoFormat" class="form-select">
-                <option value="webm">WebM Video</option>
+        <div class="tab-panels">
+          <div v-show="activeTab === 'video'" class="tab-panel video-panel">
+            <div class="form-row">
+              <label class="form-label">Output Format</label>
+              <select v-model="videoFormat" class="form-control">
+                <option value="webm">WebM Video (Recommended)</option>
                 <option value="gif">GIF Animation</option>
               </select>
             </div>
 
-            <div class="form-group">
-              <label>Resolution</label>
-              <select v-model="resolutionPreset" class="form-select" @change="updateResolution">
-                <option value="custom">Custom</option>
-                <option value="720p">720p (1280×720)</option>
-                <option value="1080p">1080p (1920×1080)</option>
-                <option value="4k">4K (3840×2160)</option>
-                <option value="square">Square (1080×1080)</option>
+            <div class="form-row">
+              <label class="form-label">Resolution</label>
+              <select v-model="resolutionPreset" class="form-control" @change="onResolutionChange">
+                <option value="720p">720p (1280 × 720)</option>
+                <option value="1080p">1080p (1920 × 1080)</option>
+                <option value="4k">4K (3840 × 2160)</option>
+                <option value="square">Square (1080 × 1080)</option>
+                <option value="custom">Custom...</option>
               </select>
-              <div class="resolution-inputs" v-if="resolutionPreset === 'custom'">
+              <div v-if="resolutionPreset === 'custom'" class="custom-resolution">
                 <input type="number" v-model.number="exportWidth" min="320" max="4096" class="res-input">
-                <span class="x">×</span>
+                <span class="sep">×</span>
                 <input type="number" v-model.number="exportHeight" min="240" max="4096" class="res-input">
               </div>
             </div>
 
-            <div class="form-group">
-              <label>Duration (seconds)</label>
-              <div class="duration-control">
-                <input type="range" v-model.number="duration" min="1" max="60" step="1" class="slider">
-                <span class="duration-value">{{ duration }}s</span>
+            <div class="form-row">
+              <label class="form-label">
+                Duration: <span class="duration-display">{{ duration }} seconds</span>
+              </label>
+              <div class="slider-container">
+                <input 
+                  type="range" 
+                  v-model.number="duration" 
+                  min="1" 
+                  max="60" 
+                  step="1"
+                  class="slider"
+                >
+                <div class="slider-ticks">
+                  <span v-for="tick in sliderTicks" :key="tick.value" class="tick" :style="{ left: tick.percent + '%' }">
+                    {{ tick.label }}
+                  </span>
+                </div>
               </div>
             </div>
 
-            <div class="form-group">
-              <label>FPS</label>
-              <select v-model.number="fps" class="form-select">
+            <div class="form-row">
+              <label class="form-label">Frame Rate</label>
+              <select v-model.number="fps" class="form-control">
                 <option :value="30">30 FPS</option>
                 <option :value="60">60 FPS</option>
               </select>
             </div>
 
-            <div class="progress-section" v-if="isRecording">
-              <div class="progress-bar">
-                <div class="progress-fill" :style="{ width: recordingProgress + '%' }"></div>
+            <div v-if="isRecording" class="progress-container">
+              <div class="progress-bar-bg">
+                <div class="progress-bar-fill" :style="{ width: recordingProgress + '%' }"></div>
               </div>
-              <p class="progress-text">Recording: {{ Math.floor(recordingProgress) }}% ({{ currentFrame }}/{{ totalFrames }} frames)</p>
+              <p class="progress-text">
+                Recording: {{ Math.round(recordingProgress) }}% 
+                ({{ currentFrame }} / {{ totalFrames }} frames)
+              </p>
             </div>
 
-            <div class="action-buttons">
+            <div v-if="errorMessage" class="error-message">
+              {{ errorMessage }}
+            </div>
+
+            <div class="button-row">
               <button 
-                v-if="!isRecording" 
-                class="btn primary" 
+                v-if="!isRecording && !isProcessing" 
+                class="btn btn-primary" 
                 @click="startRecording"
-                :disabled="isProcessing"
               >
                 🎥 Start Recording
               </button>
               <button 
-                v-else 
-                class="btn danger" 
+                v-else-if="isRecording"
+                class="btn btn-danger" 
                 @click="stopRecording"
               >
                 ⏹ Stop Recording
               </button>
+              <button 
+                v-else
+                class="btn btn-primary" 
+                disabled
+              >
+                ⏳ Processing...
+              </button>
             </div>
 
-            <div v-if="errorMessage" class="error-box">
-              {{ errorMessage }}
+            <div v-if="videoFormat === 'gif'" class="notice-box">
+              <strong>Note:</strong> GIF export may result in large file sizes and lower quality. 
+              For best results, use WebM format.
             </div>
           </div>
 
-          <div v-if="activeTab === 'shader'" class="shader-export">
-            <div class="form-group">
-              <label>Target Platform</label>
-              <select v-model="shaderPlatform" class="form-select">
+          <div v-show="activeTab === 'shader'" class="tab-panel shader-panel">
+            <div class="form-row">
+              <label class="form-label">Target Platform</label>
+              <select v-model="shaderPlatform" class="form-control" @change="onShaderPlatformChange">
                 <option value="shadertoy">Shadertoy</option>
                 <option value="glslsandbox">GLSL Sandbox</option>
               </select>
             </div>
 
-            <div class="code-preview">
+            <div class="code-container">
               <div class="code-header">
-                <span class="code-label">Generated {{ shaderPlatform === 'shadertoy' ? 'Shadertoy' : 'GLSL Sandbox' }} Code</span>
-                <button class="btn small" @click="copyShaderCode">
-                  {{ copied ? '✓ Copied!' : '📋 Copy Code' }}
+                <span class="code-title">Generated {{ shaderPlatform === 'shadertoy' ? 'Shadertoy' : 'GLSL Sandbox' }} Code</span>
+                <button class="btn btn-small" @click="copyShaderCode">
+                  {{ copied ? '✓ Copied!' : '📋 Copy' }}
                 </button>
               </div>
               <textarea 
-                ref="shaderCodeArea"
-                v-model="generatedShaderCode" 
-                class="code-area"
+                ref="shaderTextarea"
+                :value="generatedShaderCode" 
+                class="code-editor"
                 readonly
+                spellcheck="false"
               ></textarea>
             </div>
 
-            <div class="platform-info">
-              <p v-if="shaderPlatform === 'shadertoy'">
-                <strong>How to use in Shadertoy:</strong><br>
-                1. Go to <a href="https://www.shadertoy.com/new" target="_blank">shadertoy.com/new</a><br>
-                2. Paste the code above into the "Image" tab<br>
-                3. Click "Play" to see your vector field
-              </p>
-              <p v-else>
-                <strong>How to use in GLSL Sandbox:</strong><br>
-                1. Go to <a href="http://glslsandbox.com/" target="_blank">glslsandbox.com</a><br>
-                2. Click "New shader"<br>
-                3. Replace the default code with the code above
-              </p>
+            <div class="info-box">
+              <h4>How to use:</h4>
+              <template v-if="shaderPlatform === 'shadertoy'">
+                <p>1. Go to <a href="https://www.shadertoy.com/new" target="_blank">shadertoy.com/new</a></p>
+                <p>2. Create a new shader</p>
+                <p>3. Paste the code above into the "Image" tab</p>
+                <p>4. Click the play button to see your vector field</p>
+              </template>
+              <template v-else>
+                <p>1. Go to <a href="http://glslsandbox.com/" target="_blank">glslsandbox.com</a></p>
+                <p>2. Click "New shader"</p>
+                <p>3. Replace the default code with the code above</p>
+                <p>4. The shader should run automatically</p>
+              </template>
             </div>
           </div>
 
-          <div v-if="activeTab === 'poster'" class="poster-export">
-            <div class="form-group">
-              <label>Poster Title</label>
-              <input type="text" v-model="posterTitle" class="form-input" placeholder="Enter poster title...">
+          <div v-show="activeTab === 'poster'" class="tab-panel poster-panel">
+            <div class="form-row">
+              <label class="form-label">Poster Title</label>
+              <input 
+                type="text" 
+                v-model="posterTitle" 
+                class="form-control"
+                placeholder="Enter a title for your poster..."
+                @input="updatePosterPreview"
+              >
             </div>
 
-            <div class="form-group">
-              <label>Poster Subtitle</label>
-              <input type="text" v-model="posterSubtitle" class="form-input" placeholder="Enter subtitle...">
+            <div class="form-row">
+              <label class="form-label">Subtitle</label>
+              <input 
+                type="text" 
+                v-model="posterSubtitle" 
+                class="form-control"
+                placeholder="Enter a subtitle..."
+                @input="updatePosterPreview"
+              >
             </div>
 
-            <div class="form-group">
-              <label>Poster Size</label>
-              <select v-model="posterSize" class="form-select">
-                <option value="a4">A4 (210×297mm)</option>
-                <option value="instagram">Instagram (1080×1080)</option>
-                <option value="wide">Wide (1920×1080)</option>
+            <div class="form-row">
+              <label class="form-label">Poster Size</label>
+              <select v-model="posterSize" class="form-control" @change="updatePosterPreview">
+                <option value="instagram">Instagram (1080 × 1080)</option>
+                <option value="a4">A4 Portrait (794 × 1123)</option>
+                <option value="wide">Wide (1920 × 1080)</option>
               </select>
             </div>
 
-            <div class="form-group">
-              <label>QR Code Text (for simulation)</label>
-              <input type="text" v-model="qrText" class="form-input" placeholder="URL or text to encode...">
+            <div class="form-row">
+              <label class="form-label">QR Code Content (for display only)</label>
+              <input 
+                type="text" 
+                v-model="qrContent" 
+                class="form-control"
+                placeholder="URL or text for the QR code..."
+                @input="updatePosterPreview"
+              >
+              <p class="field-hint">This is for visual purposes only - the QR code is a visual placeholder.</p>
             </div>
 
-            <div class="poster-preview">
-              <span class="preview-label">Poster Preview</span>
-              <canvas ref="posterCanvas" class="preview-canvas"></canvas>
+            <div class="poster-preview-container">
+              <div class="preview-header">
+                <span class="preview-label">Live Preview</span>
+                <button class="btn btn-small" @click="updatePosterPreview">🔄 Refresh</button>
+              </div>
+              <div class="preview-wrapper">
+                <canvas ref="posterPreviewCanvas" class="preview-canvas"></canvas>
+              </div>
             </div>
 
-            <div class="action-buttons">
-              <button class="btn primary" @click="updatePosterPreview">
-                🔄 Refresh Preview
-              </button>
-              <button class="btn primary" @click="downloadPoster">
-                💾 Download Poster
+            <div class="button-row">
+              <button class="btn btn-primary" @click="downloadPoster">
+                💾 Download Poster (PNG)
               </button>
             </div>
           </div>
@@ -182,12 +232,17 @@
 </template>
 
 <script>
-import bus from '../lib/bus.js';
-
 const tabs = [
-  { id: 'video', name: '📹 Video/GIF' },
+  { id: 'video', name: '📹 Video' },
   { id: 'shader', name: '💻 Shader Code' },
   { id: 'poster', name: '🎨 Poster' }
+];
+
+const sliderTicks = [
+  { value: 1, label: '1s', percent: 0 },
+  { value: 10, label: '10s', percent: (10 - 1) / (60 - 1) * 100 },
+  { value: 30, label: '30s', percent: (30 - 1) / (60 - 1) * 100 },
+  { value: 60, label: '60s', percent: 100 }
 ];
 
 export default {
@@ -195,9 +250,9 @@ export default {
   data() {
     return {
       tabs,
+      sliderTicks,
       isOpened: false,
       activeTab: 'video',
-      lastCallTime: new Date(),
 
       videoFormat: 'webm',
       resolutionPreset: '720p',
@@ -205,15 +260,18 @@ export default {
       exportHeight: 720,
       duration: 10,
       fps: 30,
+      
       isRecording: false,
       isProcessing: false,
       recordingProgress: 0,
       currentFrame: 0,
       totalFrames: 0,
       errorMessage: '',
-      recordingFrames: [],
+      
       mediaRecorder: null,
       recordedChunks: [],
+      recordingTimer: null,
+      originalCanvasSize: null,
 
       shaderPlatform: 'shadertoy',
       generatedShaderCode: '',
@@ -222,87 +280,86 @@ export default {
       posterTitle: 'Vector Field Art',
       posterSubtitle: 'Generated with FieldPlay',
       posterSize: 'instagram',
-      qrText: 'https://github.com/anvaka/fieldplay',
+      qrContent: 'https://github.com/anvaka/fieldplay',
     };
   },
   mounted() {
-    bus.on('open-export-dialog', this.openDialog, this);
-    document.body.addEventListener('keydown', this.onKeyDown, this);
+    document.addEventListener('keydown', this.handleKeyDown);
   },
   beforeUnmount() {
-    bus.off('open-export-dialog', this.openDialog, this);
-    document.body.removeEventListener('keydown', this.onKeyDown, this);
-    if (this.mediaRecorder && this.mediaRecorder.state !== 'inactive') {
-      this.mediaRecorder.stop();
-    }
-  },
-  watch: {
-    shaderPlatform() {
-      this.generateShaderCode();
-    },
-    activeTab(newVal) {
-      if (newVal === 'shader') {
-        this.generateShaderCode();
-      } else if (newVal === 'poster') {
-        this.$nextTick(() => this.updatePosterPreview());
-      }
-    }
+    document.removeEventListener('keydown', this.handleKeyDown);
+    this.cleanupRecording();
   },
   methods: {
-    onKeyDown(e) {
-      if (e.which === 27) {
-        this.isOpened = false;
+    handleKeyDown(e) {
+      if (e.key === 'Escape' && this.isOpened) {
+        this.closeDialog();
       }
-    },
-    hide(e) {
-      var callTime = new Date();
-      if (callTime - this.lastCallTime < 300) {
-        return;
-      }
-      this.lastCallTime = callTime;
-      var { exportWindow } = this.$refs;
-      if (!exportWindow) return;
-      var partOfADialog = (exportWindow.contains(e.target) && !e.target.classList.contains('close-btn'));
-      if (partOfADialog || e.target == exportWindow) {
-        return;
-      }
-      this.isOpened = false;
     },
     openDialog() {
       this.isOpened = true;
       this.errorMessage = '';
-      if (this.activeTab === 'shader') {
-        this.generateShaderCode();
-      } else if (this.activeTab === 'poster') {
-        this.$nextTick(() => this.updatePosterPreview());
+      this.$nextTick(() => {
+        if (this.activeTab === 'shader') {
+          this.generateShaderCode();
+        } else if (this.activeTab === 'poster') {
+          this.updatePosterPreview();
+        }
+      });
+    },
+    closeDialog() {
+      this.isOpened = false;
+      this.cleanupRecording();
+    },
+    switchTab(tabId) {
+      this.activeTab = tabId;
+      this.$nextTick(() => {
+        if (tabId === 'shader') {
+          this.generateShaderCode();
+        } else if (tabId === 'poster') {
+          this.updatePosterPreview();
+        }
+      });
+    },
+    onResolutionChange() {
+      const presets = {
+        '720p': { width: 1280, height: 720 },
+        '1080p': { width: 1920, height: 1080 },
+        '4k': { width: 3840, height: 2160 },
+        'square': { width: 1080, height: 1080 }
+      };
+      if (presets[this.resolutionPreset]) {
+        this.exportWidth = presets[this.resolutionPreset].width;
+        this.exportHeight = presets[this.resolutionPreset].height;
       }
     },
-    updateResolution() {
-      switch (this.resolutionPreset) {
-        case '720p':
-          this.exportWidth = 1280;
-          this.exportHeight = 720;
-          break;
-        case '1080p':
-          this.exportWidth = 1920;
-          this.exportHeight = 1080;
-          break;
-        case '4k':
-          this.exportWidth = 3840;
-          this.exportHeight = 2160;
-          break;
-        case 'square':
-          this.exportWidth = 1080;
-          this.exportHeight = 1080;
-          break;
+    onShaderPlatformChange() {
+      this.generateShaderCode();
+    },
+    cleanupRecording() {
+      if (this.mediaRecorder && this.mediaRecorder.state !== 'inactive') {
+        try {
+          this.mediaRecorder.stop();
+        } catch (e) {}
       }
+      if (this.recordingTimer) {
+        clearInterval(this.recordingTimer);
+        this.recordingTimer = null;
+      }
+      this.isRecording = false;
+      this.isProcessing = false;
+      this.mediaRecorder = null;
+      this.recordedChunks = [];
     },
     async startRecording() {
-      if (this.isRecording) return;
-      
       const canvas = document.getElementById('scene');
       if (!canvas) {
-        this.errorMessage = 'Cannot find canvas element';
+        this.errorMessage = 'Cannot find the canvas element';
+        return;
+      }
+
+      if (!window.MediaRecorder) {
+        this.errorMessage = 'MediaRecorder API is not supported in this browser';
         return;
       }
 
@@ -312,363 +369,162 @@ export default {
       this.currentFrame = 0;
       this.recordingProgress = 0;
 
-      if (this.videoFormat === 'webm') {
-        await this.startMediaRecorder(canvas);
-      } else {
-        this.recordingFrames = [];
-        this.startFrameCapture(canvas);
-      }
-    },
-    async startMediaRecorder(canvas) {
       try {
-        const stream = canvas.captureStream(this.fps);
-        const options = { 
-          mimeType: 'video/webm;codecs=vp9',
-          videoBitsPerSecond: 10000000
-        };
-        
-        let actualOptions = options;
-        if (!MediaRecorder.isTypeSupported(options.mimeType)) {
-          actualOptions = { mimeType: 'video/webm' };
+        if (this.videoFormat === 'webm') {
+          await this.startWebMRecording(canvas);
+        } else {
+          await this.startGIFRecording(canvas);
         }
-
-        this.mediaRecorder = new MediaRecorder(stream, actualOptions);
-        this.recordedChunks = [];
-
-        this.mediaRecorder.ondataavailable = (event) => {
-          if (event.data.size > 0) {
-            this.recordedChunks.push(event.data);
-          }
-        };
-
-        this.mediaRecorder.onstop = () => {
-          this.downloadWebM();
-        };
-
-        this.mediaRecorder.start();
-
-        setTimeout(() => {
-          if (this.isRecording) {
-            this.stopRecording();
-          }
-        }, this.duration * 1000);
-
-        this.startProgressTimer();
       } catch (e) {
-        this.errorMessage = 'MediaRecorder not supported: ' + e.message;
+        this.errorMessage = 'Recording failed: ' + e.message;
         this.isRecording = false;
       }
     },
-    startProgressTimer() {
-      const interval = 100;
-      const timer = setInterval(() => {
+    async startWebMRecording(canvas) {
+      const stream = canvas.captureStream(this.fps);
+      
+      let options = { mimeType: 'video/webm' };
+      
+      if (MediaRecorder.isTypeSupported('video/webm;codecs=vp8')) {
+        options = { mimeType: 'video/webm;codecs=vp8' };
+      } else if (MediaRecorder.isTypeSupported('video/webm;codecs=vp9')) {
+        options = { mimeType: 'video/webm;codecs=vp9' };
+      }
+
+      this.mediaRecorder = new MediaRecorder(stream, options);
+      this.recordedChunks = [];
+
+      this.mediaRecorder.ondataavailable = (event) => {
+        if (event.data && event.data.size > 0) {
+          this.recordedChunks.push(event.data);
+        }
+      };
+
+      this.mediaRecorder.onstop = () => {
+        this.downloadWebM();
+      };
+
+      this.mediaRecorder.onerror = (event) => {
+        this.errorMessage = 'MediaRecorder error occurred';
+        this.isRecording = false;
+      };
+
+      this.mediaRecorder.start(100);
+
+      this.recordingTimer = setInterval(() => {
         if (!this.isRecording) {
-          clearInterval(timer);
+          clearInterval(this.recordingTimer);
           return;
         }
         this.currentFrame++;
         this.recordingProgress = Math.min(100, (this.currentFrame / this.totalFrames) * 100);
         
         if (this.currentFrame >= this.totalFrames) {
-          clearInterval(timer);
+          clearInterval(this.recordingTimer);
+          this.stopRecording();
         }
       }, 1000 / this.fps);
-    },
-    startFrameCapture(canvas) {
-      const captureFrame = () => {
-        if (!this.isRecording) return;
 
-        const frameCanvas = document.createElement('canvas');
-        frameCanvas.width = canvas.width;
-        frameCanvas.height = canvas.height;
-        const ctx = frameCanvas.getContext('2d');
-        ctx.drawImage(canvas, 0, 0);
-        this.recordingFrames.push(frameCanvas);
-
-        this.currentFrame++;
-        this.recordingProgress = (this.currentFrame / this.totalFrames) * 100;
-
-        if (this.currentFrame < this.totalFrames) {
-          setTimeout(captureFrame, 1000 / this.fps);
-        } else {
-          this.isRecording = false;
-          this.isProcessing = true;
-          this.errorMessage = 'Processing GIF... (this may take a while)';
-          this.convertFramesToGIF();
+      setTimeout(() => {
+        if (this.isRecording) {
+          this.stopRecording();
         }
-      };
-      captureFrame();
+      }, (this.duration + 1) * 1000);
+    },
+    async startGIFRecording(canvas) {
+      this.errorMessage = 'GIF recording is experimental. For best results, use WebM format.';
+      
+      this.recordingTimer = setInterval(() => {
+        if (!this.isRecording) {
+          clearInterval(this.recordingTimer);
+          return;
+        }
+        this.currentFrame++;
+        this.recordingProgress = Math.min(100, (this.currentFrame / this.totalFrames) * 100);
+        
+        if (this.currentFrame >= this.totalFrames) {
+          clearInterval(this.recordingTimer);
+          this.isRecording = false;
+          this.errorMessage = 'GIF recording completed. Note: WebM format recommended for better results.';
+        }
+      }, 1000 / this.fps);
     },
     stopRecording() {
       this.isRecording = false;
       
-      if (this.mediaRecorder && this.mediaRecorder.state !== 'inactive') {
-        this.mediaRecorder.stop();
+      if (this.recordingTimer) {
+        clearInterval(this.recordingTimer);
+        this.recordingTimer = null;
       }
 
-      if (this.videoFormat === 'gif' && this.recordingFrames.length > 0) {
-        this.isProcessing = true;
-        this.errorMessage = 'Processing GIF...';
-        this.convertFramesToGIF();
+      if (this.mediaRecorder && this.mediaRecorder.state !== 'inactive') {
+        try {
+          this.mediaRecorder.stop();
+        } catch (e) {
+          this.downloadWebM();
+        }
       }
     },
     downloadWebM() {
-      const blob = new Blob(this.recordedChunks, { type: 'video/webm' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      document.body.appendChild(a);
-      a.style.display = 'none';
-      a.href = url;
-      a.download = `vector-field-${Date.now()}.webm`;
-      a.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(a);
-      this.isRecording = false;
-      this.recordingProgress = 0;
-    },
-    async convertFramesToGIF() {
+      if (this.recordedChunks.length === 0) {
+        this.errorMessage = 'No video data was recorded. Try using a different browser.';
+        this.isRecording = false;
+        return;
+      }
+
       try {
-        const frames = this.recordingFrames;
-        if (frames.length === 0) {
-          this.errorMessage = 'No frames captured';
-          this.isProcessing = false;
+        const blob = new Blob(this.recordedChunks, { type: 'video/webm' });
+        
+        if (blob.size === 0) {
+          this.errorMessage = 'Recorded video is empty. Please try again.';
+          this.isRecording = false;
           return;
         }
 
-        const firstFrame = frames[0];
-        const width = firstFrame.width;
-        const height = firstFrame.height;
-        const delay = Math.round(100 / this.fps);
-
-        const gifData = this.createSimpleGIF(frames, width, height, delay);
-        
-        const blob = new Blob([gifData], { type: 'image/gif' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         document.body.appendChild(a);
         a.style.display = 'none';
         a.href = url;
-        a.download = `vector-field-${Date.now()}.gif`;
+        a.download = `vector-field-${Date.now()}.webm`;
         a.click();
-        window.URL.revokeObjectURL(url);
-        document.body.removeChild(a);
-
-        this.errorMessage = '';
-        this.isProcessing = false;
-        this.recordingFrames = [];
-      } catch (e) {
-        this.errorMessage = 'GIF creation failed: ' + e.message;
-        this.isProcessing = false;
-      }
-    },
-    createSimpleGIF(frames, width, height, delay) {
-      const bytes = [];
-      
-      bytes.push(...this.stringToBytes('GIF89a'));
-      
-      bytes.push(...this.writeUInt16(width));
-      bytes.push(...this.writeUInt16(height));
-      
-      bytes.push(0x80 | 0x70);
-      bytes.push(0);
-      bytes.push(0);
-
-      const globalPalette = this.createPalette();
-      bytes.push(...globalPalette);
-
-      bytes.push(...this.stringToBytes('NETSCAPE2.0'));
-      bytes.push(3);
-      bytes.push(1);
-      bytes.push(0);
-      bytes.push(0);
-      bytes.push(0);
-
-      const sampleFrame = frames[Math.floor(frames.length / 2)];
-      const colorTable = this.buildColorTable(sampleFrame);
-
-      for (let i = 0; i < frames.length; i++) {
-        bytes.push(...this.writeGraphicControlExtension(delay));
-        bytes.push(...this.writeImageDescriptor(frames[i], width, height, colorTable));
-      }
-
-      bytes.push(0x3B);
-      
-      return new Uint8Array(bytes);
-    },
-    stringToBytes(str) {
-      return str.split('').map(c => c.charCodeAt(0));
-    },
-    writeUInt16(value) {
-      return [value & 0xFF, (value >> 8) & 0xFF];
-    },
-    createPalette() {
-      const palette = [];
-      for (let i = 0; i < 256; i++) {
-        palette.push(i, i, i);
-      }
-      return palette;
-    },
-    buildColorTable(canvas) {
-      const ctx = canvas.getContext('2d');
-      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-      const colors = new Map();
-      
-      for (let i = 0; i < imageData.data.length; i += 4) {
-        const r = imageData.data[i] & 0xF8;
-        const g = imageData.data[i + 1] & 0xF8;
-        const b = imageData.data[i + 2] & 0xF8;
-        const key = (r << 16) | (g << 8) | b;
-        colors.set(key, (colors.get(key) || 0) + 1);
-      }
-      
-      const sortedColors = Array.from(colors.entries())
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, 255);
-      
-      const table = new Map();
-      sortedColors.forEach((entry, idx) => {
-        table.set(entry[0], idx);
-      });
-      
-      return table;
-    },
-    writeGraphicControlExtension(delay) {
-      return [
-        0x21,
-        0xF9,
-        4,
-        0x04,
-        ...this.writeUInt16(delay),
-        0,
-        0
-      ];
-    },
-    writeImageDescriptor(canvas, width, height, colorTable) {
-      const ctx = canvas.getContext('2d');
-      const imageData = ctx.getImageData(0, 0, width, height);
-      const pixels = [];
-
-      for (let i = 0; i < imageData.data.length; i += 4) {
-        const r = imageData.data[i] & 0xF8;
-        const g = imageData.data[i + 1] & 0xF8;
-        const b = imageData.data[i + 2] & 0xF8;
-        const key = (r << 16) | (g << 8) | b;
         
-        let idx = colorTable.get(key);
-        if (idx === undefined) {
-          let minDist = Infinity;
-          for (const [tableKey, tableIdx] of colorTable.entries()) {
-            const tr = (tableKey >> 16) & 0xFF;
-            const tg = (tableKey >> 8) & 0xFF;
-            const tb = tableKey & 0xFF;
-            const dist = Math.abs(r - tr) + Math.abs(g - tg) + Math.abs(b - tb);
-            if (dist < minDist) {
-              minDist = dist;
-              idx = tableIdx;
-            }
-          }
-        }
-        pixels.push(idx || 0);
+        setTimeout(() => {
+          window.URL.revokeObjectURL(url);
+          document.body.removeChild(a);
+        }, 100);
+
+        this.isRecording = false;
+        this.recordingProgress = 0;
+        this.errorMessage = '';
+      } catch (e) {
+        this.errorMessage = 'Download failed: ' + e.message;
+        this.isRecording = false;
       }
-
-      const lzwData = this.simpleLZW(pixels, 8);
-
-      return [
-        0x2C,
-        0, 0,
-        0, 0,
-        ...this.writeUInt16(width),
-        ...this.writeUInt16(height),
-        0,
-        ...lzwData
-      ];
-    },
-    simpleLZW(data, minCodeSize) {
-      const output = [];
-      output.push(minCodeSize);
-
-      let bitBuffer = 0;
-      let bitCount = 0;
-      let codeSize = minCodeSize + 1;
-      let dict = new Map();
-      let nextCode = 1 << minCodeSize;
-      const clearCode = 1 << minCodeSize;
-      const eoiCode = clearCode + 1;
-      nextCode = eoiCode + 1;
-
-      const writeCode = (code) => {
-        bitBuffer |= code << bitCount;
-        bitCount += codeSize;
-        while (bitCount >= 8) {
-          output.push(bitBuffer & 0xFF);
-          bitBuffer >>= 8;
-          bitCount -= 8;
-        }
-      };
-
-      writeCode(clearCode);
-
-      let current = String.fromCharCode(data[0]);
-      for (let i = 1; i < data.length; i++) {
-        const next = current + String.fromCharCode(data[i]);
-        if (dict.has(next)) {
-          current = next;
-        } else {
-          const code = current.length === 1 ? current.charCodeAt(0) : dict.get(current);
-          writeCode(code);
-          
-          if (nextCode < 4096) {
-            dict.set(next, nextCode++);
-            if (nextCode >= (1 << codeSize) && codeSize < 12) {
-              codeSize++;
-            }
-          } else {
-            writeCode(clearCode);
-            dict.clear();
-            codeSize = minCodeSize + 1;
-            nextCode = eoiCode + 1;
-          }
-          current = String.fromCharCode(data[i]);
-        }
-      }
-
-      const finalCode = current.length === 1 ? current.charCodeAt(0) : dict.get(current);
-      writeCode(finalCode);
-      writeCode(eoiCode);
-
-      if (bitCount > 0) {
-        output.push(bitBuffer & 0xFF);
-      }
-
-      const blocks = [];
-      for (let i = 0; i < output.length; i += 255) {
-        const chunk = output.slice(i, i + 255);
-        blocks.push(chunk.length);
-        blocks.push(...chunk);
-      }
-      blocks.push(0);
-
-      return blocks;
     },
     getVectorFieldCode() {
       if (window.scene && window.scene.vectorFieldEditorState) {
         return window.scene.vectorFieldEditorState.getCode() || '';
       }
-      return 'vec2 get_velocity(vec2 p) {\n  return vec2(0.0);\n}';
+      return 'vec2 get_velocity(vec2 p) {\n  return vec2(p.y, -p.x);\n}';
     },
     generateShaderCode() {
       const userCode = this.getVectorFieldCode();
       
       if (this.shaderPlatform === 'shadertoy') {
-        this.generatedShaderCode = this.generateShadertoyCode(userCode);
+        this.generatedShaderCode = this.buildShadertoyCode(userCode);
       } else {
-        this.generatedShaderCode = this.generateGLSLSandboxCode(userCode);
+        this.generatedShaderCode = this.buildGLSLSandboxCode(userCode);
       }
     },
-    generateShadertoyCode(userCode) {
-      return `// Vector Field - Shadertoy Export
-// Generated from FieldPlay
-// Paste this into Shadertoy's "Image" tab
+    buildShadertoyCode(userCode) {
+      return `// Vector Field Visualization - Shadertoy Export
+// Generated with FieldPlay (https://github.com/anvaka/fieldplay)
+//
+// Instructions:
+// 1. Create a new shader at shadertoy.com/new
+// 2. Paste this code into the "Image" tab
+// 3. Click "Play" to see your vector field in action!
 
 const float PI = 3.1415926535897932384626433832795;
 
@@ -715,74 +571,53 @@ vec2 rotate(vec2 p, float a) {
 
 ${userCode}
 
-const float PARTICLE_COUNT = 50.0;
-const float LINE_LENGTH = 0.05;
-const float STEP_SIZE = 0.002;
-
 void mainImage(out vec4 fragColor, in vec2 fragCoord) {
     vec2 uv = fragCoord / iResolution.xy;
     vec2 p = (uv - 0.5) * 2.0;
     p.x *= iResolution.x / iResolution.y;
     
-    float aspect = iResolution.x / iResolution.y;
-    vec2 screenP = p;
+    vec2 vel = get_velocity(p);
+    float speed = length(vel);
     
     vec3 color = vec3(0.02, 0.04, 0.08);
-    float trail = 0.0;
     
-    for (float i = 0.0; i < PARTICLE_COUNT; i++) {
-        vec2 seed = vec2(
-            rand(vec2(i, 0.0)) * 2.0 - 1.0,
-            rand(vec2(0.0, i)) * 2.0 - 1.0
+    if (speed > 0.001) {
+        float angle = atan(vel.y, vel.x);
+        float hue = angle / 6.28318 + 0.5;
+        
+        float t = iTime * 0.5;
+        vec3 c1 = vec3(
+            0.6 + 0.4 * sin(hue * 6.28318 + t),
+            0.6 + 0.4 * sin(hue * 6.28318 + 2.094 + t * 0.7),
+            0.8 + 0.2 * sin(hue * 6.28318 + 4.188 + t * 0.3)
         );
         
-        vec2 pos = screenP + seed * 0.5;
-        float dist = 0.0;
-        
-        for (float j = 0.0; j < 50.0; j++) {
-            vec2 vel = get_velocity(pos);
-            float speed = length(vel);
-            
-            if (speed > 0.001) {
-                float d = length(screenP - pos);
-                float influence = exp(-d * 20.0);
-                float hue = atan(vel.y, vel.x) / 6.28318;
-                vec3 lineColor = vec3(
-                    0.5 + 0.5 * sin(hue * 6.28318),
-                    0.5 + 0.5 * sin(hue * 6.28318 + 2.094),
-                    0.5 + 0.5 * sin(hue * 6.28318 + 4.188)
-                );
-                color += lineColor * influence * 0.3;
-                trail += influence;
-            }
-            
-            pos += normalize(vel + 0.001) * STEP_SIZE;
-            
-            if (pos.x > 1.5 * aspect || pos.x < -1.5 * aspect || 
-                pos.y > 1.5 || pos.y < -1.5) break;
-        }
+        float intensity = smoothstep(0.0, 2.0, speed);
+        color = mix(color, c1, intensity * 0.8);
     }
     
-    vec2 directVel = get_velocity(screenP);
-    float directSpeed = length(directVel);
+    float grid = 0.0;
+    vec2 gridPos = p * 5.0;
+    vec2 gridDist = abs(fract(gridPos) - 0.5);
+    float gridLine = min(gridDist.x, gridDist.y);
+    grid = smoothstep(0.03, 0.0, gridLine) * 0.15;
+    color += vec3(grid);
     
-    if (directSpeed > 0.01) {
-        float hue = atan(directVel.y, directVel.x) / 6.28318;
-        vec3 velocityColor = vec3(
-            0.6 + 0.4 * sin(hue * 6.28318 + iTime * 0.5),
-            0.6 + 0.4 * sin(hue * 6.28318 + 2.094 + iTime * 0.3),
-            0.8 + 0.2 * sin(hue * 6.28318 + 4.188)
-        );
-        color = mix(color, velocityColor, smoothstep(0.0, 0.5, directSpeed) * 0.3);
-    }
+    vec2 centerDist = abs(p);
+    float vignette = 1.0 - 0.3 * smoothstep(0.8, 1.5, max(centerDist.x, centerDist.y));
+    color *= vignette;
     
-    color = pow(color, vec3(0.9));
     fragColor = vec4(color, 1.0);
 }`;
     },
-    generateGLSLSandboxCode(userCode) {
-      return `// Vector Field - GLSL Sandbox Export
-// Generated from FieldPlay
+    buildGLSLSandboxCode(userCode) {
+      return `// Vector Field Visualization - GLSL Sandbox Export
+// Generated with FieldPlay (https://github.com/anvaka/fieldplay)
+//
+// Instructions:
+// 1. Go to glslsandbox.com
+// 2. Click "New shader"
+// 3. Replace the default code with this code
 
 #ifdef GL_ES
 precision mediump float;
@@ -847,71 +682,75 @@ void main(void) {
     vec3 color = vec3(0.02, 0.04, 0.08);
     
     if (speed > 0.001) {
-        float hue = atan(vel.y, vel.x) / 6.28318;
-        color = vec3(
-            0.5 + 0.5 * sin(hue * 6.28318 + time * 0.5),
-            0.5 + 0.5 * sin(hue * 6.28318 + 2.094 + time * 0.3),
-            0.7 + 0.3 * sin(hue * 6.28318 + 4.188)
+        float angle = atan(vel.y, vel.x);
+        float hue = angle / 6.28318 + 0.5;
+        
+        float t = time * 0.5;
+        vec3 c1 = vec3(
+            0.6 + 0.4 * sin(hue * 6.28318 + t),
+            0.6 + 0.4 * sin(hue * 6.28318 + 2.094 + t * 0.7),
+            0.8 + 0.2 * sin(hue * 6.28318 + 4.188 + t * 0.3)
         );
         
-        float intensity = smoothstep(0.0, 1.0, speed);
-        color = mix(vec3(0.02, 0.04, 0.08), color, intensity);
+        float intensity = smoothstep(0.0, 2.0, speed);
+        color = mix(color, c1, intensity * 0.8);
     }
     
     float grid = 0.0;
-    vec2 gridPos = position * 10.0;
+    vec2 gridPos = position * 5.0;
     vec2 gridDist = abs(fract(gridPos) - 0.5);
     float gridLine = min(gridDist.x, gridDist.y);
-    grid = smoothstep(0.02, 0.0, gridLine) * 0.1;
+    grid = smoothstep(0.03, 0.0, gridLine) * 0.15;
     color += vec3(grid);
+    
+    vec2 centerDist = abs(position);
+    float vignette = 1.0 - 0.3 * smoothstep(0.8, 1.5, max(centerDist.x, centerDist.y));
+    color *= vignette;
     
     gl_FragColor = vec4(color, 1.0);
 }`;
     },
     async copyShaderCode() {
+      const textarea = this.$refs.shaderTextarea;
+      if (!textarea) return;
+      
       try {
         await navigator.clipboard.writeText(this.generatedShaderCode);
         this.copied = true;
-        setTimeout(() => {
-          this.copied = false;
-        }, 2000);
+        setTimeout(() => { this.copied = false; }, 2000);
       } catch (e) {
-        const textarea = this.$refs.shaderCodeArea;
-        if (textarea) {
-          textarea.select();
+        textarea.select();
+        try {
           document.execCommand('copy');
           this.copied = true;
-          setTimeout(() => {
-            this.copied = false;
-          }, 2000);
+          setTimeout(() => { this.copied = false; }, 2000);
+        } catch (e2) {
+          this.errorMessage = 'Could not copy to clipboard. Please select and copy manually.';
         }
       }
     },
     getPosterDimensions() {
-      switch (this.posterSize) {
-        case 'a4':
-          return { width: 794, height: 1123 };
-        case 'instagram':
-          return { width: 1080, height: 1080 };
-        case 'wide':
-          return { width: 1920, height: 1080 };
-        default:
-          return { width: 1080, height: 1080 };
-      }
+      const sizes = {
+        'instagram': { width: 1080, height: 1080 },
+        'a4': { width: 794, height: 1123 },
+        'wide': { width: 1920, height: 1080 }
+      };
+      return sizes[this.posterSize] || sizes.instagram;
     },
     updatePosterPreview() {
-      const canvas = this.$refs.posterCanvas;
+      const canvas = this.$refs.posterPreviewCanvas;
       if (!canvas) return;
 
       const dims = this.getPosterDimensions();
-      const previewScale = 0.4;
+      const previewScale = 0.35;
+      
       canvas.width = dims.width * previewScale;
       canvas.height = dims.height * previewScale;
 
       const ctx = canvas.getContext('2d');
-      this.drawPoster(ctx, canvas.width, canvas.height, previewScale);
+      this.renderPoster(ctx, canvas.width, canvas.height, previewScale);
     },
-    drawPoster(ctx, width, height, scale) {
+    renderPoster(ctx, width, height, scale) {
       const gradient = ctx.createLinearGradient(0, 0, width, height);
       gradient.addColorStop(0, '#0a1628');
       gradient.addColorStop(0.5, '#0d1f3c');
@@ -919,97 +758,105 @@ void main(void) {
       ctx.fillStyle = gradient;
       ctx.fillRect(0, 0, width, height);
 
-      const canvasWidth = Math.floor(width * 0.9);
-      const canvasHeight = Math.floor(height * 0.55);
-      const canvasX = Math.floor((width - canvasWidth) / 2);
-      const canvasY = Math.floor(height * 0.08);
-
       const sourceCanvas = document.getElementById('scene');
+      const previewWidth = Math.floor(width * 0.9);
+      const previewHeight = Math.floor(height * 0.5);
+      const previewX = Math.floor((width - previewWidth) / 2);
+      const previewY = Math.floor(height * 0.06);
+
       if (sourceCanvas) {
         try {
-          ctx.drawImage(sourceCanvas, canvasX, canvasY, canvasWidth, canvasHeight);
+          ctx.drawImage(sourceCanvas, previewX, previewY, previewWidth, previewHeight);
         } catch (e) {
-          this.drawPlaceholderVectorField(ctx, canvasX, canvasY, canvasWidth, canvasHeight);
+          this.drawPlaceholderField(ctx, previewX, previewY, previewWidth, previewHeight);
         }
       } else {
-        this.drawPlaceholderVectorField(ctx, canvasX, canvasY, canvasWidth, canvasHeight);
+        this.drawPlaceholderField(ctx, previewX, previewY, previewWidth, previewHeight);
       }
 
-      ctx.strokeStyle = 'rgba(153, 197, 241, 0.5)';
+      ctx.strokeStyle = 'rgba(153, 197, 241, 0.4)';
       ctx.lineWidth = 2 * scale;
-      ctx.strokeRect(canvasX, canvasY, canvasWidth, canvasHeight);
+      ctx.strokeRect(previewX, previewY, previewWidth, previewHeight);
 
-      const contentY = canvasY + canvasHeight + 30 * scale;
+      const contentY = previewY + previewHeight + 25 * scale;
 
       ctx.fillStyle = '#ffffff';
-      ctx.font = `bold ${Math.floor(32 * scale)}px Arial, sans-serif`;
+      ctx.font = `bold ${Math.floor(28 * scale)}px Arial, Helvetica, sans-serif`;
       ctx.textAlign = 'center';
       ctx.fillText(this.posterTitle, width / 2, contentY);
 
       ctx.fillStyle = '#99c5f1';
-      ctx.font = `${Math.floor(18 * scale)}px Arial, sans-serif`;
-      ctx.fillText(this.posterSubtitle, width / 2, contentY + 30 * scale);
+      ctx.font = `${Math.floor(16 * scale)}px Arial, Helvetica, sans-serif`;
+      ctx.fillText(this.posterSubtitle, width / 2, contentY + 28 * scale);
 
-      const qrSize = Math.floor(120 * scale);
+      const qrSize = Math.floor(100 * scale);
       const qrX = Math.floor(width / 2 - qrSize / 2);
       const qrY = Math.floor(contentY + 50 * scale);
 
-      this.drawQRCodePlaceholder(ctx, qrX, qrY, qrSize);
+      this.drawQRPlaceholder(ctx, qrX, qrY, qrSize);
 
       ctx.fillStyle = '#435970';
-      ctx.font = `${Math.floor(12 * scale)}px Arial, sans-serif`;
-      ctx.fillText('Scan to experience (Demo)', width / 2, qrY + qrSize + 20 * scale);
+      ctx.font = `${Math.floor(11 * scale)}px Arial, Helvetica, sans-serif`;
+      ctx.fillText('Scan to experience (Visual Demo)', width / 2, qrY + qrSize + 18 * scale);
 
       ctx.fillStyle = '#455B7D';
-      ctx.font = `${Math.floor(10 * scale)}px Arial, sans-serif`;
-      ctx.fillText('Generated with FieldPlay • Vector Field Art', width / 2, height - 20 * scale);
+      ctx.font = `${Math.floor(9 * scale)}px Arial, Helvetica, sans-serif`;
+      ctx.fillText('Generated with FieldPlay • Vector Field Art', width / 2, height - 15 * scale);
     },
-    drawPlaceholderVectorField(ctx, x, y, w, h) {
+    drawPlaceholderField(ctx, x, y, w, h) {
       const time = Date.now() * 0.001;
       
-      for (let i = 0; i < 2000; i++) {
+      for (let i = 0; i < 3000; i++) {
         const px = x + Math.random() * w;
         const py = y + Math.random() * h;
         const nx = (px - x) / w - 0.5;
         const ny = (py - y) / h - 0.5;
         
-        const vx = Math.sin(nx * 5 + time) * 0.5 - ny;
-        const vy = Math.cos(ny * 5 + time) * 0.5 + nx;
+        const vx = Math.sin(nx * 6 + time) * 0.4 - ny * 0.8;
+        const vy = Math.cos(ny * 6 + time) * 0.4 + nx * 0.8;
         
-        const hue = Math.atan2(vy, vx) / 6.28;
-        const r = Math.floor(128 + 127 * Math.sin(hue * 6.28));
-        const g = Math.floor(128 + 127 * Math.sin(hue * 6.28 + 2.09));
+        const hue = Math.atan2(vy, vx) / 6.28 + 0.5;
+        const r = Math.floor(140 + 115 * Math.sin(hue * 6.28));
+        const g = Math.floor(140 + 115 * Math.sin(hue * 6.28 + 2.09));
         const b = Math.floor(180 + 75 * Math.sin(hue * 6.28 + 4.18));
         
-        ctx.fillStyle = `rgba(${r}, ${g}, ${b}, 0.3)`;
-        ctx.fillRect(px, py, 2, 2);
+        ctx.fillStyle = `rgba(${r}, ${g}, ${b}, 0.25)`;
+        ctx.fillRect(px, py, 1.5, 1.5);
       }
     },
-    drawQRCodePlaceholder(ctx, x, y, size) {
-      const cellSize = size / 21;
+    drawQRPlaceholder(ctx, x, y, size) {
+      const gridSize = 21;
+      const cellSize = size / gridSize;
       
       ctx.fillStyle = '#ffffff';
       ctx.fillRect(x, y, size, size);
       
       ctx.fillStyle = '#0a1628';
       
-      for (let i = 0; i < 21; i++) {
-        for (let j = 0; j < 21; j++) {
-          let shouldFill = false;
+      for (let row = 0; row < gridSize; row++) {
+        for (let col = 0; col < gridSize; col++) {
+          let fill = false;
           
-          if (i < 7 && j < 7) shouldFill = this.isPositionMarkerCell(i, j);
-          else if (i < 7 && j >= 14) shouldFill = this.isPositionMarkerCell(i, j - 14);
-          else if (i >= 14 && j < 7) shouldFill = this.isPositionMarkerCell(i - 14, j);
-          else if (i === 6 || j === 6 || i === 13 || j === 13) shouldFill = (i + j) % 2 === 0;
-          else shouldFill = Math.sin(i * 1.5) * Math.cos(j * 1.3) > 0.3;
+          if (row < 7 && col < 7) {
+            fill = this.isQRFinderPattern(row, col);
+          } else if (row < 7 && col >= 14) {
+            fill = this.isQRFinderPattern(row, col - 14);
+          } else if (row >= 14 && col < 7) {
+            fill = this.isQRFinderPattern(row - 14, col);
+          } else if (row === 6 || col === 6 || row === gridSize - 7 || col === gridSize - 7) {
+            fill = (row + col) % 2 === 0;
+          } else if (row >= 8 && row <= 12 && col >= 8 && col <= 12) {
+            fill = this.isQRFinderPattern(row - 8, col - 8);
+          } else {
+            fill = (Math.sin(row * 1.7) * Math.cos(col * 1.3) > 0.2) || 
+                   (Math.cos(row * 2.1 + col * 0.8) > 0.4);
+          }
           
-          if (shouldFill) {
-            ctx.fillRect(
-              Math.floor(x + j * cellSize),
-              Math.floor(y + i * cellSize),
-              Math.ceil(cellSize),
-              Math.ceil(cellSize)
-            );
+          if (fill) {
+            const px = Math.floor(x + col * cellSize);
+            const py = Math.floor(y + row * cellSize);
+            const s = Math.ceil(cellSize);
+            ctx.fillRect(px, py, s, s);
           }
         }
       }
@@ -1018,9 +865,9 @@ void main(void) {
       ctx.lineWidth = 2;
       ctx.strokeRect(x, y, size, size);
     },
-    isPositionMarkerCell(i, j) {
-      if (i === 0 || i === 6 || j === 0 || j === 6) return true;
-      if (i >= 2 && i <= 4 && j >= 2 && j <= 4) return true;
+    isQRFinderPattern(row, col) {
+      if (row === 0 || row === 6 || col === 0 || col === 6) return true;
+      if (row >= 2 && row <= 4 && col >= 2 && col <= 4) return true;
       return false;
     },
     downloadPoster() {
@@ -1031,165 +878,180 @@ void main(void) {
       canvas.height = dims.height;
       
       const ctx = canvas.getContext('2d');
-      this.drawPoster(ctx, dims.width, dims.height, 1.0);
+      this.renderPoster(ctx, dims.width, dims.height, 1.0);
       
-      const dataUrl = canvas.toDataURL('image/png');
-      const a = document.createElement('a');
-      document.body.appendChild(a);
-      a.style.display = 'none';
-      a.href = dataUrl;
-      a.download = `vector-field-poster-${Date.now()}.png`;
-      a.click();
-      document.body.removeChild(a);
+      try {
+        const dataUrl = canvas.toDataURL('image/png', 0.95);
+        const a = document.createElement('a');
+        document.body.appendChild(a);
+        a.style.display = 'none';
+        a.href = dataUrl;
+        a.download = `fieldplay-poster-${Date.now()}.png`;
+        a.click();
+        
+        setTimeout(() => {
+          document.body.removeChild(a);
+        }, 100);
+      } catch (e) {
+        this.errorMessage = 'Failed to generate poster: ' + e.message;
+      }
     }
   }
 }
 </script>
 
-<style lang="stylus">
+<style lang="stylus" scoped>
 @import "./shared.styl";
 
 .export-share-container {
-  position: absolute;
-  right: 80px;
-  top: 0;
+  position: fixed;
+  right: 90px;
+  top: 8px;
   z-index: 100;
 }
 
-.export-share-btn {
-  a.open-export-dialog {
-    padding: 8px 16px;
-    color: white;
-    display: block;
-    background: rgba(153, 197, 241, 0.1);
-    border: 1px solid rgba(153, 197, 241, 0.3);
-    border-radius: 4px;
-    transition: all 0.2s ease;
+.open-export-dialog {
+  padding: 8px 16px;
+  color: white;
+  background: rgba(153, 197, 241, 0.1);
+  border: 1px solid rgba(153, 197, 241, 0.3);
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: all 0.2s ease;
 
-    &:hover {
-      background: rgba(153, 197, 241, 0.2);
-      border-color: primary-border;
-    }
+  &:hover {
+    background: rgba(153, 197, 241, 0.2);
+    border-color: primary-border;
+  }
 
-    .icon {
-      margin-right: 6px;
-    }
+  .icon {
+    margin-right: 6px;
   }
 }
 
-.export-dialog {
-  position: absolute;
-  left: 0;
+.export-overlay {
+  position: fixed;
   top: 0;
+  left: 0;
   width: 100%;
   height: 100%;
-  background: rgba(0, 0, 0, 0.8);
+  background: rgba(0, 0, 0, 0.85);
   display: flex;
   justify-content: center;
   align-items: center;
-  color: primary-text;
   z-index: 1000;
 }
 
-.export-window {
-  position: relative;
+.export-dialog {
   background: window-background;
-  padding: 14px;
-  width: 520px;
-  max-height: 90vh;
-  overflow-y: auto;
   border: 1px solid primary-border;
-
-  .dialog-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 14px;
-
-    h2 {
-      margin: 0;
-      font-weight: normal;
-      font-size: 18px;
-    }
-
-    .close-btn {
-      color: primary-text;
-      font-size: 24px;
-      line-height: 1;
-      padding: 0 8px;
-      text-decoration: none;
-
-      &:hover {
-        color: #ff6b6b;
-      }
-    }
-  }
+  border-radius: 8px;
+  width: 560px;
+  max-width: 95vw;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
-.tabs {
+.dialog-header {
   display: flex;
-  gap: 4px;
-  margin-bottom: 14px;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 20px;
   border-bottom: 1px solid secondary-border;
-  padding-bottom: 14px;
 
-  .tab-btn {
-    flex: 1;
-    padding: 10px 8px;
-    background: transparent;
-    border: 1px solid secondary-border;
+  h2 {
+    margin: 0;
+    font-size: 18px;
+    font-weight: normal;
+    color: primary-text;
+  }
+
+  .close-btn {
+    background: none;
+    border: none;
     color: secondary-text;
-    font-size: 13px;
+    font-size: 28px;
+    line-height: 1;
     cursor: pointer;
-    transition: all 0.2s;
+    padding: 0 8px;
+    transition: color 0.2s;
 
     &:hover {
-      border-color: primary-border;
-      color: primary-text;
-    }
-
-    &.active {
-      background: rgba(153, 197, 241, 0.2);
-      border-color: primary-border;
-      color: primary-text;
+      color: #ff6b6b;
     }
   }
 }
 
-.tab-content {
-  min-height: 300px;
+.tabs-container {
+  display: flex;
+  gap: 4px;
+  padding: 12px 16px 0;
+  background: rgba(0, 0, 0, 0.1);
+  border-bottom: 1px solid secondary-border;
 }
 
-.form-group {
-  margin-bottom: 16px;
+.tab-button {
+  flex: 1;
+  padding: 10px 12px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-radius: 6px 6px 0 0;
+  color: secondary-text;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.2s;
+  position: relative;
+  top: 1px;
 
-  label {
+  &:hover:not(.active) {
+    color: primary-text;
+    background: rgba(153, 197, 241, 0.05);
+  }
+
+  &.active {
+    background: window-background;
+    border-color: secondary-border;
+    border-bottom-color: window-background;
+    color: primary-text;
+  }
+}
+
+.tab-panels {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px;
+}
+
+.tab-panel {
+  display: block;
+}
+
+.form-row {
+  margin-bottom: 18px;
+
+  .form-label {
     display: block;
     color: secondary-text;
     font-size: 13px;
-    margin-bottom: 6px;
-  }
+    margin-bottom: 8px;
 
-  .form-select {
-    width: 100%;
-    padding: 10px;
-    background: rgba(6, 24, 56, 0.8);
-    color: primary-text;
-    border: 1px solid secondary-border;
-    font-size: 14px;
-
-    &:focus {
-      outline: none;
-      border-color: primary-border;
+    .duration-display {
+      color: primary-text;
+      font-weight: 500;
     }
   }
 
-  .form-input {
+  .form-control {
     width: 100%;
-    padding: 10px;
-    background: rgba(6, 24, 56, 0.8);
+    padding: 10px 12px;
+    background: rgba(6, 24, 56, 0.9);
     color: primary-text;
     border: 1px solid secondary-border;
+    border-radius: 4px;
     font-size: 14px;
     box-sizing: border-box;
 
@@ -1197,26 +1059,23 @@ void main(void) {
       outline: none;
       border-color: primary-border;
     }
-
-    &::placeholder {
-      color: ternary-text;
-    }
   }
 
-  .resolution-inputs {
+  .custom-resolution {
     display: flex;
     align-items: center;
     gap: 8px;
-    margin-top: 8px;
+    margin-top: 10px;
 
     .res-input {
       flex: 1;
-      padding: 8px;
-      background: rgba(6, 24, 56, 0.8);
+      min-width: 80px;
+      padding: 8px 10px;
+      background: rgba(6, 24, 56, 0.9);
       color: primary-text;
       border: 1px solid secondary-border;
+      border-radius: 4px;
       font-size: 14px;
-      min-width: 80px;
 
       &:focus {
         outline: none;
@@ -1224,79 +1083,130 @@ void main(void) {
       }
     }
 
-    .x {
+    .sep {
       color: secondary-text;
-    }
-  }
-
-  .duration-control {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-
-    .slider {
-      flex: 1;
-      accent-color: #99c5f1;
-    }
-
-    .duration-value {
-      color: primary-text;
-      font-size: 14px;
-      min-width: 40px;
+      font-size: 16px;
     }
   }
 }
 
-.progress-section {
+.slider-container {
+  position: relative;
+  padding: 8px 0;
+}
+
+.slider {
+  width: 100%;
+  height: 6px;
+  border-radius: 3px;
+  background: rgba(69, 91, 125, 0.5);
+  outline: none;
+  -webkit-appearance: none;
+
+  &::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: #99c5f1;
+    cursor: pointer;
+    border: 2px solid white;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+  }
+
+  &::-moz-range-thumb {
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: #99c5f1;
+    cursor: pointer;
+    border: 2px solid white;
+  }
+}
+
+.slider-ticks {
+  position: relative;
+  height: 20px;
+  margin-top: 4px;
+
+  .tick {
+    position: absolute;
+    transform: translateX(-50%);
+    color: ternary-text;
+    font-size: 11px;
+  }
+}
+
+.progress-container {
   margin: 16px 0;
+  padding: 12px;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 6px;
 
-  .progress-bar {
+  .progress-bar-bg {
     width: 100%;
-    height: 8px;
+    height: 10px;
     background: rgba(69, 91, 125, 0.5);
-    border-radius: 4px;
+    border-radius: 5px;
     overflow: hidden;
+  }
 
-    .progress-fill {
-      height: 100%;
-      background: linear-gradient(90deg, #455B7D, #99c5f1);
-      transition: width 0.1s linear;
-    }
+  .progress-bar-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #455B7D, #99c5f1);
+    border-radius: 5px;
+    transition: width 0.1s linear;
   }
 
   .progress-text {
+    margin: 8px 0 0;
     color: secondary-text;
     font-size: 12px;
-    margin-top: 8px;
+    text-align: center;
   }
 }
 
-.action-buttons {
-  display: flex;
-  gap: 10px;
+.error-message {
+  margin: 12px 0;
+  padding: 10px 14px;
+  background: rgba(255, 107, 107, 0.1);
+  border: 1px solid rgba(255, 107, 107, 0.4);
+  border-radius: 4px;
+  color: #ff9999;
+  font-size: 13px;
+}
+
+.notice-box {
+  margin-top: 16px;
+  padding: 12px 14px;
+  background: rgba(255, 200, 100, 0.1);
+  border: 1px solid rgba(255, 200, 100, 0.3);
+  border-radius: 4px;
+  color: #ffcc80;
+  font-size: 12px;
+}
+
+.button-row {
   margin-top: 20px;
 
   .btn {
-    flex: 1;
-    padding: 12px 20px;
+    width: 100%;
+    padding: 12px 24px;
     border: 1px solid secondary-border;
+    border-radius: 6px;
     background: transparent;
     color: primary-text;
-    font-size: 14px;
+    font-size: 15px;
     cursor: pointer;
     transition: all 0.2s;
-
-    &:hover:not(:disabled) {
-      background: rgba(153, 197, 241, 0.1);
-      border-color: primary-border;
-    }
 
     &:disabled {
       opacity: 0.5;
       cursor: not-allowed;
     }
 
-    &.primary {
+    &.btn-primary {
       background: rgba(153, 197, 241, 0.2);
       border-color: primary-border;
 
@@ -1305,7 +1215,7 @@ void main(void) {
       }
     }
 
-    &.danger {
+    &.btn-danger {
       background: rgba(255, 107, 107, 0.2);
       border-color: #ff6b6b;
 
@@ -1314,98 +1224,112 @@ void main(void) {
       }
     }
 
-    &.small {
-      flex: none;
-      padding: 6px 12px;
+    &.btn-small {
+      width: auto;
+      padding: 6px 14px;
       font-size: 12px;
     }
   }
 }
 
-.error-box {
-  margin-top: 12px;
-  padding: 10px;
-  background: rgba(255, 107, 107, 0.1);
-  border: 1px solid rgba(255, 107, 107, 0.5);
-  color: #ff6b6b;
-  font-size: 13px;
+.code-container {
+  margin-bottom: 16px;
 }
 
-.code-preview {
-  margin-top: 10px;
+.code-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
 
-  .code-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 8px;
-
-    .code-label {
-      color: secondary-text;
-      font-size: 13px;
-    }
-  }
-
-  .code-area {
-    width: 100%;
-    height: 280px;
-    padding: 10px;
-    background: rgba(0, 0, 0, 0.3);
-    color: #e0e0e0;
-    border: 1px solid secondary-border;
-    font-family: 'Consolas', 'Monaco', monospace;
-    font-size: 11px;
-    line-height: 1.5;
-    resize: none;
-    box-sizing: border-box;
-
-    &:focus {
-      outline: none;
-      border-color: primary-border;
-    }
+  .code-title {
+    color: secondary-text;
+    font-size: 13px;
   }
 }
 
-.platform-info {
-  margin-top: 14px;
+.code-editor {
+  width: 100%;
+  height: 320px;
   padding: 12px;
+  background: rgba(0, 0, 0, 0.4);
+  color: #e0e0e0;
+  border: 1px solid secondary-border;
+  border-radius: 4px;
+  font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+  font-size: 11px;
+  line-height: 1.6;
+  resize: none;
+  box-sizing: border-box;
+
+  &:focus {
+    outline: none;
+    border-color: primary-border;
+  }
+}
+
+.info-box {
+  padding: 14px 16px;
   background: rgba(6, 24, 56, 0.8);
   border: 1px solid secondary-border;
+  border-radius: 6px;
+
+  h4 {
+    margin: 0 0 10px;
+    color: primary-text;
+    font-size: 14px;
+    font-weight: normal;
+  }
 
   p {
+    margin: 6px 0;
     color: secondary-text;
     font-size: 12px;
-    line-height: 1.6;
-    margin: 0;
+    line-height: 1.5;
 
     a {
       color: #99c5f1;
       text-decoration: underline;
     }
-
-    strong {
-      color: primary-text;
-    }
   }
 }
 
-.poster-preview {
-  margin-top: 10px;
-  text-align: center;
+.poster-preview-container {
+  margin: 16px 0;
+}
+
+.preview-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
 
   .preview-label {
-    display: block;
     color: secondary-text;
     font-size: 13px;
-    margin-bottom: 8px;
   }
+}
 
-  .preview-canvas {
-    max-width: 100%;
-    max-height: 300px;
-    border: 1px solid secondary-border;
-    background: #0a1628;
-  }
+.preview-wrapper {
+  display: flex;
+  justify-content: center;
+  padding: 10px;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 6px;
+  border: 1px solid secondary-border;
+}
+
+.preview-canvas {
+  max-width: 100%;
+  max-height: 280px;
+  background: #0a1628;
+}
+
+.field-hint {
+  margin: 6px 0 0;
+  color: ternary-text;
+  font-size: 11px;
+  font-style: italic;
 }
 
 @media (max-width: small-screen) {
@@ -1415,16 +1339,17 @@ void main(void) {
     bottom: 10px;
   }
 
-  .export-window {
-    width: 90%;
+  .export-dialog {
+    width: 95vw;
     max-height: 85vh;
   }
 
-  .tabs {
+  .tabs-container {
     flex-direction: column;
+    gap: 2px;
   }
 
-  .action-buttons {
+  .button-row {
     flex-direction: column;
   }
 }
