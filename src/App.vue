@@ -19,6 +19,7 @@
         <div ref='left' class='left resize'></div>
       </div>
       <share></share>
+      <export-share></export-share>
       <about @close='aboutVisible = false' v-if='aboutVisible'></about>
     </div>
   </div>
@@ -29,6 +30,7 @@ import Controls from './components/Controls.vue';
 import Ruler from './components/Ruler.vue';
 import Settings from './components/Settings.vue';
 import Share from './components/Share.vue';
+import ExportShare from './components/ExportShare.vue';
 import About from './components/About.vue';
 import bus from './lib/bus.js';
 import isSmallScreen from './lib/isSmallScreen.js';
@@ -75,6 +77,7 @@ export default {
     Ruler,
     Settings,
     Share,
+    ExportShare,
     About,
     VectorView
   },
