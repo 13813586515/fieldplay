@@ -315,3 +315,16 @@ void main() {
 }
 `;
 }
+
+export function getSimpleCopyShader() {
+  return `
+precision highp float;
+uniform sampler2D u_screen;
+varying vec2 v_tex_pos;
+
+void main() {
+  vec2 p = 1.0 - v_tex_pos;
+  gl_FragColor = texture2D(u_screen, p);
+}
+`;
+}
