@@ -287,7 +287,7 @@ export default {
   font-size: 12px;
   
   &:hover {
-    background: lighten(accent-color, 10%);
+    background: accent-color-light;
   }
 }
 
