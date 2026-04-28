@@ -306,8 +306,6 @@ export default {
       
       if (window.renderBackend && window.renderBackend.switchBackend) {
         await window.renderBackend.switchBackend(true);
-        this.useWebGPU = true;
-        this.onSceneReady(window.scene);
       }
     },
 
@@ -316,12 +314,11 @@ export default {
       
       if (window.renderBackend && window.renderBackend.switchBackend) {
         await window.renderBackend.switchBackend(false);
-        this.useWebGPU = false;
-        this.onSceneReady(window.scene);
       }
     },
 
     onSceneReady(scene) {
+      this.scene = scene;
       this.vectorField = scene.vectorFieldEditorState;
       this.particlesCount = scene.getParticlesCount();
       this.fadeOutSpeed = scene.getFadeOutSpeed();

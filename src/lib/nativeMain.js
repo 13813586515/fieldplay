@@ -39,6 +39,7 @@ async function initVectorFieldApp(canvas) {
       window.webGPUEnabled = true;
       currentScene.start();
       initAutoMode(currentScene);
+      bus.fire('scene-ready', currentScene);
       console.log('WebGPU initialized successfully');
       return;
     } catch (e) {
@@ -65,6 +66,7 @@ function initWebGLScene(canvas) {
     scene.start();
     initAutoMode(scene);
     window.scene = scene;
+    bus.fire('scene-ready', currentScene);
   } else {
     window.webGLEnabled = false;
   }

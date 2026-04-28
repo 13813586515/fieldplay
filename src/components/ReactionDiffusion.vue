@@ -156,6 +156,7 @@ export default {
   },
   methods: {
     onSceneReady(scene) {
+      this.scene = scene;
       this.isWebGPU = scene && scene.isWebGPU;
       if (this.isWebGPU && scene.reactionDiffusion) {
         this.rdEnabled = scene.reactionDiffusion.isEnabled();

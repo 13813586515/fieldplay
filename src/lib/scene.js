@@ -123,6 +123,7 @@ export default function initScene(gl) {
   updateParticlesCount(particleCount);
 
   var api = {
+    isWebGPU: false,
     start: nextFrame,
     stop,
     dispose,
@@ -165,10 +166,6 @@ export default function initScene(gl) {
 
   var panzoom = initPanzoom();
   restoreBBox();
-
-  setTimeout(() => {
-    bus.fire('scene-ready', api);
-  })
 
   return api;
 
