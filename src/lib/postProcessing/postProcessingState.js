@@ -1,5 +1,5 @@
 const defaultPostProcessingState = {
-  enabled: true,
+  enabled: false,
   
   bloom: {
     enabled: true,
