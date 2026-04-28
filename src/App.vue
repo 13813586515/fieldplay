@@ -44,10 +44,14 @@ const MIN_SETTINGS_WIDTH = 395;
 export default {
   name: 'app',
   mounted() {
-    this.scene = window.scene;
-    bus.fire('scene-ready', window.scene);
     this.updateControlsStyle = this.updateControlsStyle.bind(this);
     window.addEventListener('resize', this.updateControlsStyle, true);
+
+    bus.on('scene-ready', this.onSceneReady, this);
+    
+    if (window.scene) {
+      this.onSceneReady(window.scene);
+    }
 
     this.resizer = createDrag(this.$refs.left, dx => {
       this.width += dx;
@@ -57,6 +61,7 @@ export default {
   beforeUnmount() {
     this.resizer.dispose();
     window.removeEventListener('resize', this.updateControlsStyle, true);
+    bus.off('scene-ready', this.onSceneReady, this);
     if (this.scene) {
       this.scene.dispose();
       this.scene = null;
@@ -82,6 +87,10 @@ export default {
     FieldSourceOverlay
   },
   methods: {
+    onSceneReady(scene) {
+      this.scene = scene;
+      this.webGLEnabled = window.webGLEnabled;
+    },
     getControlsContainerStyle() {
       if (isSmallScreen()) return { width: '100%' };
 
